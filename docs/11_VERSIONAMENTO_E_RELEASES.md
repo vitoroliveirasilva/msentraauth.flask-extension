@@ -1,28 +1,35 @@
 # Versionamento e releases
 
-## Esquema
+## Dependências diretas
 
-SemVer: `MAJOR.MINOR.PATCH`.
+- `Flask>=3.1,<3.2`;
+- `msal>=1.37,<2`.
+
+Dependências transitivas não são fixadas sem necessidade técnica comprovada.
 
 ## Artefatos
 
 - Source distribution;
-- Wheel;
+- Wheel universal Python;
 - Metadata completa;
 - `py.typed`;
-- Changelog e release notes.
+- Changelog e documentação.
 
-## Processo planejado
+## Validação da ETAPA 00
 
-1. Suíte completa;
-2. Build limpo;
-3. `twine check`;
-4. Instalação em ambiente vazio;
-5. TestPyPI;
-6. Template consumidor;
-7. Tag;
-8. PyPI;
-9. Release notes.
+1. Instalação editável em ambiente limpo;
+2. Lint e formatação;
+3. Tipagem estrita;
+4. Testes e cobertura;
+5. Bandit e pip-audit;
+6. Build isolado;
+7. `twine check`;
+8. Inspeção automatizada dos conteúdos do wheel e do sdist;
+9. Instalação do wheel em ambiente limpo na CI.
+
+## Processo futuro de publicação
+
+TestPyPI, tags, GitHub Releases e PyPI permanecem fora da ETAPA 00.
 
 ## Branches
 

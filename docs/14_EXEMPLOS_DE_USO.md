@@ -1,6 +1,6 @@
-# Exemplos de uso propostos
+# Exemplos de uso disponíveis na ETAPA 00
 
-## Factory
+## Application factory
 
 ```python
 from flask import Flask
@@ -8,60 +8,38 @@ from flask_ms_entra_auth import MicrosoftEntraAuth
 
 entra_auth = MicrosoftEntraAuth()
 
+
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config.from_prefixed_env()
     entra_auth.init_app(app)
-    entra_auth.register_routes(app)
     return app
 ```
 
-## Rota protegida
+## Duas aplicações com a mesma instância
 
 ```python
-from flask_ms_entra_auth import current_identity, login_required
+from flask import Flask
+from flask_ms_entra_auth import MicrosoftEntraAuth
 
-@app.get('/conta')
-@login_required
-def conta():
-    return {
-        'nome': current_identity.display_name,
-        'usuario': current_identity.username,
-    }
+entra_auth = MicrosoftEntraAuth()
+
+app_a = Flask("app_a")
+app_b = Flask("app_b")
+
+entra_auth.init_app(app_a)
+entra_auth.init_app(app_b)
 ```
 
-## Token para Graph
+Cada aplicação recebe estado próprio em `app.extensions["ms_entra_auth"]`.
+
+## Consulta de versão
 
 ```python
-token = entra_auth.acquire_token(['User.Read'])
+from flask_ms_entra_auth import __version__
+
+print(__version__)
 ```
 
-A aplicação realiza a chamada HTTP downstream.
+# Planejado, não disponível
 
-## Hook local
-
-```python
-@entra_auth.on_authenticated
-def vincular(identity):
-    return repositorio.obter_ou_criar(
-        tenant_id=identity.tenant_id,
-        object_id=identity.object_id,
-    )
-```
-
-## Rotas próprias
-
-```python
-@app.get('/entrar')
-def entrar():
-    return entra_auth.begin_login(next_url='/painel')
-```
-
-## Storage próprio
-
-```python
-class MeuStorage:
-    def load(self, key: str) -> bytes | None: ...
-    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
-    def delete(self, key: str) -> None: ...
-```
+Os exemplos de rota protegida, token para Graph, hooks, storage próprio, login, callback e logout dependem das etapas seguintes.

@@ -1,50 +1,45 @@
 # MS Entra Auth para Flask
 
-Extensão Flask planejada para integrar aplicações web ao Microsoft Entra ID por meio do MSAL com fluxo de autorização, identidade autenticada, cache de tokens substituível e compatibilidade com o padrão de application factory.
+Extensão Flask reutilizável, em desenvolvimento, para integrar aplicações web ao Microsoft Entra ID por meio do MSAL. O projeto prioriza application factory, estado isolado por aplicação, API pública tipada e comportamento observável.
 
-## Objetivo
+## Estado atual
 
-Reduzir repetição e falhas recorrentes na autenticação Microsoft Entra ID em aplicações Flask, sem esconder o protocolo e sem transformar a extensão em um framework paralelo.
+A **ETAPA 00** está implementada e com isso é fornecido apenas a fundação executável e instalável da extensão.
 
-- Inicialização e conclusão do Authorization Code Flow;
-- Preservação e validação do fluxo entre login e callback;
-- Integração com o MSAL e seu token cache;
-- Aquisição silenciosa e renovação de tokens;
-- Identidade autenticada imutável e sem credenciais;
-- Rotas opcionais de login, callback e logout;
-- Hooks para vinculação com usuários locais;
-- Backends substituíveis para persistência;
-- Erros públicos previsíveis e logs sem segredos.
+|                        Componente | Estado        |
+| --------------------------------: | :------------ |
+|              Empacotamento Python | Implementado  |
+|                   Estrutura `src` | Implementada  |
+| `MicrosoftEntraAuth` e `init_app` | Implementados |
+|                Testes e qualidade | Implementados |
+|                         CI mínima | Implementada  |
+|   Autenticação Microsoft Entra ID | Não iniciada  |
+|                       Fluxos MSAL | Não iniciados |
+|                Publicação no PyPI | Não realizada |
 
-## Fora do núcleo
+O status detalhado está em [`docs/implementation/status.md`](docs/implementation/status.md).
 
-O núcleo não deverá fornecer banco de usuários, painel administrativo, autorização completa, templates obrigatórios, cliente genérico da Microsoft Graph, Redis obrigatório, SQLAlchemy, criação de App Registration ou suporte a frameworks além do Flask.
+## Instalação para desenvolvimento
 
-## Relação com o template
+Requer Python 3.11 ou superior.
 
-```text
-msentraauth.flask-extension
-          ↓
-  Núcleo reutilizável
-          ↓
-msentraauth.flask-template
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-O [msentraauth.flask-template](https://github.com/vitoroliveirasilva/msentraauth.flask-template) será o consumidor real, exemplo de integração e teste de uso da extensão.
+No PowerShell:
 
-## Estado
+```powershell
+python -m venv venv
+venv\scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
 
-|           Componente | Estado        |
-| -------------------: | :------------ |
-|       Visão e escopo | Definidos     |
-| Arquitetura proposta | Definida      |
-|  API pública inicial | Especificada  |
-|        Implementação | Não iniciada  |
-|               Testes | Não iniciados |
-|                 PyPI | Não publicado |
-|       Versão estável | Inexistente   |
-
-## Uso pretendido
+## Uso disponível na ETAPA 00
 
 ```python
 from flask import Flask
@@ -55,31 +50,39 @@ entra_auth = MicrosoftEntraAuth()
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config.from_mapping(
-        MS_ENTRA_CLIENT_ID="...",
-        MS_ENTRA_CLIENT_SECRET="...",
-        MS_ENTRA_TENANT_ID="...",
-        MS_ENTRA_REDIRECT_URI="http://localhost:5000/auth/callback",
-    )
     entra_auth.init_app(app)
-    entra_auth.register_routes(app)
     return app
 ```
 
-```python
-from flask_ms_entra_auth import current_identity, login_required
+Atualmente, `init_app()`:
 
-@app.get('/area-restrita')
-@login_required
-def area_restrita():
-    return {
-        'id': current_identity.object_id,
-        'nome': current_identity.display_name,
-        'tenant': current_identity.tenant_id,
-    }
+- Valida que o argumento é uma instância de `flask.Flask`;
+- Registra estado isolado em `app.extensions["ms_entra_auth"]`;
+- Aceita a mesma instância da extensão em múltiplas aplicações;
+- Não armazena a aplicação em `self.app`;
+- É idempotente quando a mesma instância inicializa novamente a mesma aplicação;
+- Rejeita uma segunda instância tentando ocupar a chave já registrada;
+- Não realiza chamadas de rede, não inicializa MSAL e não registra rotas.
+
+## Validação local
+
+```bash
+ruff check .
+ruff format --check .
+mypy src tests
+pytest
+bandit -c pyproject.toml -r src
+pip-audit .
+python -m build
+python -m twine check dist/*
+DIST_DIR=dist pytest tests/test_distribution.py --no-cov
 ```
 
-Os nomes acima são parte do contrato proposto, não de uma implementação disponível.
+## Escopo futuro
+
+A documentação descreve a direção planejada para Authorization Code Flow, identidade autenticada, token cache, storage, hooks e rotas opcionais (esses recursos não fazem parte da implementação atual).
+
+O [msentraauth.flask-template](https://github.com/vitoroliveirasilva/msentraauth.flask-template) será futuramente a aplicação consumidora e de referência.
 
 ## Princípios
 
@@ -91,23 +94,23 @@ Os nomes acima são parte do contrato proposto, não de uma implementação disp
 6. Tokens nunca expostos ao cliente por padrão;
 7. API pública pequena, tipada e previsível.
 
+## Identidade do pacote
+
+|         Contexto | Nome                          |
+| ---------------: | :---------------------------- |
+|      Repositório | `msentraauth.flask-extension` |
+|     Distribuição | `flask-ms-entra-auth`         |
+|           Import | `flask_ms_entra_auth`         |
+| Classe principal | `MicrosoftEntraAuth`          |
+
 ## Documentação
 
-O índice completo está disponível em [`docs/README.md`](docs/README.md).
+O índice completo está em [`docs/README.md`](docs/README.md).
 
 ## Branches
 
-- `dev`: desenvolvimento e integração.
-- `prod`: versão considerada estável.
-
-## Identidade do pacote
-
-|         Contexto | Nome planejado                |
-| ---------------: | :---------------------------- |
-|      Repositório | `msentraauth.flask-extension` |
-|             PyPI | `flask-ms-entra-auth`         |
-|           Import | `flask_ms_entra_auth`         |
-| Classe principal | `MicrosoftEntraAuth`          |
+- `dev`: desenvolvimento e integração;
+- `prod`: estado considerado estável.
 
 ## Segurança e contribuição
 
@@ -115,4 +118,4 @@ Consulte [`SECURITY.md`](SECURITY.md) e [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licença e marcas
 
-Licenciado sob a [Licença MIT](LICENSE). Este é um projeto independente, não oficial e sem qualquer afiliação, manutenção ou endosso da Microsoft. Microsoft, Microsoft Entra, Microsoft Graph e MSAL são marcas registradas de seus respectivos proprietários.
+Licenciado sob a [Licença MIT](LICENSE). Este é um projeto independente, não oficial e sem afiliação, manutenção ou endosso da Microsoft. Microsoft, Microsoft Entra, Microsoft Graph e MSAL são marcas de seus respectivos proprietários.

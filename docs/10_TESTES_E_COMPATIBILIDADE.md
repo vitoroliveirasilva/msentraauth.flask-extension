@@ -1,54 +1,43 @@
 # Testes e compatibilidade
 
-## Camadas
+## Compatibilidade da ETAPA 00
 
-### Unitários
+- Python mínimo: 3.11;
+- Matriz de CI: Python 3.11, 3.12, 3.13 e 3.14;
+- Flask: série `3.1.x`;
+- MSAL: série `1.x`, com mínimo `1.37` para alinhar a matriz declarada com Python 3.14.
 
-Configuração, redirect, identidade, storage, erros, next URL, seleção de conta e cache.
+## Casos unitários implementados
 
-### Integração
+- Import do pacote;
+- Export público de `MicrosoftEntraAuth`;
+- Consulta da versão;
+- Registro em `app.extensions`;
+- Mesma instância em duas aplicações;
+- Ausência de `self.app`;
+- Isolamento de estado mutável;
+- Inicialização duplicada idempotente com a mesma instância;
+- Rejeição de outra instância na mesma aplicação;
+- Rejeição de argumento inválido;
+- Ausência de registro de rotas.
 
-Factory, blueprint, sessão, login/callback mockados, token silencioso, logout, hooks e múltiplas apps.
+## Artefatos
 
-### Contrato de storage
+Após `python -m build`, a suíte de distribuição valida:
 
-Toda implementação deve passar pela mesma suíte.
+- Existência de um wheel e um source distribution;
+- Versão nos nomes e no metadata;
+- Requisito de Python;
+- Dependências diretas;
+- Inclusão de `py.typed` no wheel e no sdist;
+- Inclusão do código e dos testes no sdist.
 
-### Template
+## Ferramentas
 
-O template instala a extensão e valida cenários de integração.
-
-## Casos mínimos
-
-- Callback válido;
-- State divergente;
-- Fluxo ausente;
-- Replay;
-- Cancelamento;
-- Tenant inesperado;
-- Claims ausentes;
-- Cache corrompido;
-- Token encontrado e renovado;
-- Reautenticação;
-- Storage indisponível;
-- Logout;
-- Next externa;
-- Duas apps;
-- Sessões concorrentes.
-
-## Compatibilidade
-
-A matriz inicial deve refletir as versões do Python suportadas pelo Flask em uso, além de Flask 3.1+ e a versão mínima compatível do MSAL.
-
-## Metas
-
-- 95% de cobertura do núcleo;
-- 100% das ramificações de callback;
-- Exceções públicas validadas;
-- Suporte a `py.typed`;
-- mypy com configurações rigorosas;
-- API pública totalmente tipada.
-
-## Ferramentas planejadas
-
-pytest, pytest-cov, Ruff, mypy, Bandit, pip-audit, build e twine check.
+- Pytest e pytest-cov;
+- Ruff para lint e formatação;
+- Mypy em modo estrito;
+- Bandit;
+- Pip-audit;
+- Build;
+- Twine check.

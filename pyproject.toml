@@ -1,0 +1,117 @@
+[build-system]
+requires = ["hatchling>=1.31,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flask-ms-entra-auth"
+dynamic = ["version"]
+description = "Extensão Flask reutilizável para autenticação com Microsoft Entra ID."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+  { name = "Vitor Oliveira" },
+]
+keywords = ["flask", "microsoft-entra-id", "msal", "authentication"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Framework :: Flask",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
+]
+dependencies = [
+  "Flask>=3.1,<3.2",
+  "msal>=1.37,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "bandit>=1.9.4,<2",
+  "build>=1.4.4,<1.5",
+  "mypy>=2.3,<3",
+  "pip-audit>=2.10.1,<3",
+  "pytest>=9.1,<10",
+  "pytest-cov>=7.1,<8",
+  "ruff>=0.15.20,<1",
+  "twine>=6.2,<7",
+]
+
+[project.urls]
+Documentation = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/tree/dev/docs"
+Issues = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/issues"
+Repository = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension"
+
+[tool.hatch.version]
+path = "src/flask_ms_entra_auth/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flask_ms_entra_auth"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/.github/workflows/ci.yml",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/README.md",
+  "/SECURITY.md",
+  "/docs/**/*.md",
+  "/pyproject.toml",
+  "/src",
+  "/tests",
+]
+
+[tool.pytest.ini_options]
+addopts = [
+  "--strict-config",
+  "--strict-markers",
+  "-ra",
+  "--cov=flask_ms_entra_auth",
+  "--cov-branch",
+  "--cov-report=term-missing",
+  "--cov-report=xml",
+  "--cov-fail-under=100",
+]
+testpaths = ["tests"]
+markers = [
+  "distribution: valida artefatos previamente construídos",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["flask_ms_entra_auth"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["flask_ms_entra_auth"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["flask_ms_entra_auth"]
+show_error_codes = true
+warn_unused_configs = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]

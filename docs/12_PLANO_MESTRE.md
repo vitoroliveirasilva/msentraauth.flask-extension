@@ -2,7 +2,7 @@
 
 ## Etapa 00: fundação
 
-Documentação, estrutura `src`, `pyproject.toml`, pacote importável, qualidade e testes mínimos.
+Documentação coerente, estrutura `src`, `pyproject.toml`, pacote importável, versionamento, qualidade, testes mínimos, auditoria, build e CI.
 
 ## Etapa 01: configuração
 
@@ -42,4 +42,4 @@ Dependência local, Redis no template, Graph e testes cruzados.
 
 ## Etapa 10: publicação
 
-Docs, build, TestPyPI e validação.
+Documentação final, TestPyPI, validação de consumidor e publicação.

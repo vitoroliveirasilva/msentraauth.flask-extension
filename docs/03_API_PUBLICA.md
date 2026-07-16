@@ -1,79 +1,65 @@
-# API pública proposta
-
-## Import
+# API pública
 
 ```python
-from flask_ms_entra_auth import MicrosoftEntraAuth
+from flask_ms_entra_auth import MicrosoftEntraAuth, __version__
 ```
+
+A lista pública atual contém somente `MicrosoftEntraAuth` e `__version__`.
 
 ## `MicrosoftEntraAuth`
 
+### Construção
+
+```python
+extension = MicrosoftEntraAuth()
+```
+
+Também é possível inicializar diretamente uma aplicação:
+
+```python
+extension = MicrosoftEntraAuth(app)
+```
+
+O padrão recomendado permanece a construção desacoplada seguida de `init_app`, por compatibilidade com application factory.
+
 ### `init_app(app)`
 
-- Valida configuração;
-- Registra `app.extensions['ms_entra_auth']`;
-- Suporta mais de uma aplicação;
-- Não faz chamada de rede na inicialização.
+- Exige uma instância de `flask.Flask` e rejeita outros valores com `TypeError`;
+- Registra estado em `app.extensions["ms_entra_auth"]`;
+- Suporta mais de uma aplicação com a mesma instância;
+- Mantém estado mutável separado entre aplicações;
+- Não armazena a aplicação em `self.app`;
+- Não faz chamada de rede;
+- Não inicializa MSAL;
+- Não registra rotas;
+- Não valida credenciais ou configuração de autenticação nesta etapa.
 
-### `register_routes(app, url_prefix='/auth')`
+### Inicialização duplicada
 
-| Método | Caminho | Finalidade |
-|---|---|---|
-| GET | `/auth/login` | Iniciar login |
-| GET | `/auth/callback` | Concluir login |
-| POST | `/auth/logout` | Encerrar sessão |
-| GET | `/auth/logged-out` | Página opcional |
+- Repetir `init_app()` com a mesma instância e aplicação é idempotente e preserva o estado existente;
+- Uma instância diferente tentando registrar a mesma aplicação recebe `RuntimeError`;
+- Um valor incompatível já presente na chave também causa `RuntimeError`.
 
-### Métodos avançados
+## Versão
 
-- `begin_login(next_url=None)`;
-- `complete_login(auth_response)`;
-- `acquire_token(scopes, force_refresh=False)`;
-- `logout()`.
-
-## Identidade atual
+A versão pública é consultável por:
 
 ```python
-from flask_ms_entra_auth import current_identity
+from flask_ms_entra_auth import __version__
 ```
 
-Propriedades:
+A fonte única é `src/flask_ms_entra_auth/_version.py`, usada também pelo Hatchling para gerar o metadata da distribuição.
 
-- `is_authenticated`;
-- `object_id`;
-- `tenant_id`;
-- `subject`;
-- `display_name`;
-- `username`;
-- `home_account_id`;
-- `claims` somente leitura.
+## API planejada, não implementada
 
-## Decorator
+As APIs abaixo permanecem propostas para etapas posteriores:
 
-```python
-from flask_ms_entra_auth import login_required
-```
-
-A resposta para não autenticado deve ser configurável entre redirecionamento HTML e `401` para APIs.
-
-## Hooks
-
-- `on_authenticated`;
-- `on_logout`;
-- `on_authentication_error`;
-- `on_token_refreshed`.
-
-Hooks nunca recebem client secret, refresh token ou cache serializado.
-
-## Exceções públicas
-
-- `ConfigurationError`;
-- `AuthenticationError`;
-- `AuthenticationRequired`;
-- `ConsentRequired`;
-- `InvalidCallbackError`;
-- `IdentityValidationError`;
-- `StorageError`;
-- `TokenAcquisitionError`.
-
-Após `1.0.0`, imports e exceções públicas fazem parte da compatibilidade semântica.
+- `register_routes`;
+- `begin_login`;
+- `complete_login`;
+- `acquire_token`;
+- `logout`;
+- `current_identity`;
+- `login_required`;
+- Hooks de autenticação;
+- Exceções públicas de configuração, autenticação, storage e token.
