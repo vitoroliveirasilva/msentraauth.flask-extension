@@ -31,10 +31,7 @@ def test_same_instance_initializes_two_distinct_apps() -> None:
 
     assert first_app.extensions["ms_entra_auth"].extension is extension
     assert second_app.extensions["ms_entra_auth"].extension is extension
-    assert (
-        first_app.extensions["ms_entra_auth"]
-        is not second_app.extensions["ms_entra_auth"]
-    )
+    assert first_app.extensions["ms_entra_auth"] is not second_app.extensions["ms_entra_auth"]
 
 
 def test_extension_does_not_store_app_on_self() -> None:

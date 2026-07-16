@@ -32,9 +32,7 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         names = set(wheel.namelist())
         assert "flask_ms_entra_auth/py.typed" in names
         assert "flask_ms_entra_auth/extension.py" in names
-        metadata_name = next(
-            name for name in names if name.endswith(".dist-info/METADATA")
-        )
+        metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = wheel.read(metadata_name).decode()
         assert f"Version: {EXPECTED_VERSION}" in metadata
         assert "Requires-Python: >=3.11" in metadata
