@@ -1,10 +1,10 @@
 # Token cache e storage
 
-## Objetivo
+## Estado atual: ETAPA 02
 
-Persistir fluxo, identidade e cache MSAL sem acoplar o núcleo a Redis, SQLAlchemy ou Flask-Session.
+O contrato de storage, o backend em memória, namespace, TTL e erros estão implementados. Token cache MSAL, fluxo, identidade e dados reais de autenticação ainda não existem.
 
-## Contrato inicial
+## Contrato público
 
 ```python
 from typing import Protocol
@@ -15,51 +15,70 @@ class AuthStorage(Protocol):
     def delete(self, key: str) -> None: ...
 ```
 
-O contrato poderá evoluir para operações específicas e compare-and-set.
+O contrato é byte-oriented para não acoplar o núcleo a Redis, SQLAlchemy, Flask-Session ou formatos de serialização específicos.
 
-## Implementação padrão
+## Implementação em memória
 
-A extensão não deve armazenar cache de token em cookie Flask no cliente. Para desenvolvimento, pode fornecer um armazenamento em memória com aviso explícito de que não é seguro para produção (o template deve demonstrar sessão server-side e Redis).
+`MemoryStorage` fornece:
 
-## Chaves
+- Armazenamento em processo;
+- Lock para operações atômicas;
+- TTL baseado em relógio monotônico;
+- Remoção preguiçosa em `load()`;
+- Limpeza explícita por `purge_expired()`;
+- `delete()` idempotente;
+- Política last-write-wins.
 
-- Namespace exclusivo;
-- Identificador de sessão imprevisível;
-- Sem email;
-- Sem token;
-- Sem colisão entre aplicações.
+Ele é destinado somente a desenvolvimento e testes. Dados são perdidos ao encerrar o processo e não são compartilhados entre workers.
+
+## Namespace
+
+A aplicação trabalha com chaves lógicas. Antes de delegar ao backend, a extensão aplica:
+
+```text
+msentra:<namespace>:<chave>
+```
+
+`MS_ENTRA_SESSION_NAMESPACE` pode definir o namespace explicitamente. Sem configuração, um valor determinístico é derivado do nome da aplicação, client ID e tenant ID.
+
+Chaves não devem conter email, token, claim, client secret ou identificador previsível de usuário. Identificadores de sessão serão definidos em etapa posterior.
 
 ## TTL
 
-| Dado       | Política          |
-| ---------: | :---------------- |
-| Fluxo      | Curto             |
-| Identidade | Duração da sessão |
-| Cache      | Alinhado à sessão |
-| Expirados  | Removidos         |
+| Dado futuro | Política planejada |
+| ----------: | :----------------- |
+|       Fluxo | Curto              |
+|  Identidade | Duração da sessão  |
+|  Cache MSAL | Alinhado à sessão  |
+
+Na API atual, TTL deve ser inteiro positivo em segundos ou `None`. Zero, negativos, booleanos e outros tipos são rejeitados com `StorageError`.
 
 ## Concorrência
 
-O comportamento do sistema em cenários de concorrência deve ser explícito, previsível e coberto por testes automatizados. Para esta etapa inicial, será adotada a estratégia **last-write-wins**, na qual a última operação de escrita concluída prevalece sobre as anteriores. Dessa forma, os testes devem comprovar esse comportamento e garantir que ele permaneça determinístico e qualquer evolução que introduza mecanismos como locks, operações CAS (*compare-and-swap*), controle de versão, detecção de conflitos ou concorrência otimista será documentada por meio de um ADR específico.
+`MemoryStorage` protege operações com `RLock`. A última escrita concluída para uma chave prevalece. Locks distribuídos, CAS, versionamento e concorrência otimista permanecem fora do contrato e exigirão ADR próprio.
 
-## Serialização
+## Erros
 
-A serialização e a desserialização do cache de autenticação devem utilizar exclusivamente o `SerializableTokenCache` fornecido pelo MSAL.
+Falhas de validação e operação usam `StorageError`. Adaptadores de backend:
 
-Refresh tokens não devem ser acessados, armazenados, alterados ou manipulados diretamente pela aplicação. Logo, o gerenciamento desses dados permanece sob responsabilidade do MSAL.
+- Preservam uma `StorageError` já segura;
+- Encapsulam outras exceções com `raise ... from ...`;
+- Não incluem chave, valor ou mensagem original na mensagem pública.
+
+## Serialização futura
+
+A serialização e desserialização do cache de autenticação deverão usar exclusivamente `msal.SerializableTokenCache`. Refresh tokens não serão manipulados diretamente pela aplicação ou pelo storage.
 
 ## Produção
 
-Em ambientes de produção, a implementação deve adotar controles compatíveis com o nível de sensibilidade dos dados armazenados, incluindo:
+Backends de produção devem considerar:
 
-* Uso de TLS nas conexões com serviços externos de armazenamento;
-* Definição de TTLs adequados ao ciclo de vida das sessões;
-* Aplicação do princípio do menor privilégio nas credenciais e permissões;
-* Proteção dos dados em repouso, quando aplicável;
-* Prevenção do registro de tokens, identificadores de sessão ou outros valores sensíveis em logs.
+- TLS para serviços externos;
+- TTL compatível com sessão e fluxo;
+- Menor privilégio;
+- Proteção em repouso;
+- Múltiplos workers e processos;
+- Disponibilidade e timeouts;
+- Nenhum token, chave de sessão ou cache em logs.
 
-## Limpeza e encerramento de sessão
-
-O logout deve remover exclusivamente os dados associados à sessão atual, sem afetar sessões pertencentes a outros usuários, dispositivos ou contextos de autenticação.
-
-Falhas ocorridas durante operações de leitura, escrita, expiração ou remoção no mecanismo de armazenamento devem ser encapsuladas e propagadas como `StorageError`, preservando a causa original para diagnóstico sem expor dados sensíveis.
+Redis e outros backends de produção não foram implementados nesta etapa.

@@ -85,7 +85,7 @@ jobs:
           .package-venv/bin/python -m pip install dist/*.whl
           .package-venv/bin/python - <<'PY'
           from flask import Flask
-          from flask_ms_entra_auth import MicrosoftEntraAuth, __version__
+          from flask_ms_entra_auth import AuthStorage, MemoryStorage, MicrosoftEntraAuth, __version__
 
           from importlib.metadata import version
 
@@ -95,8 +95,13 @@ jobs:
               MS_ENTRA_CLIENT_SECRET="smoke-secret",
               MS_ENTRA_TENANT_ID="smoke.example.com",
               MS_ENTRA_REDIRECT_URI="https://smoke.example.com/auth/callback",
+              MS_ENTRA_SESSION_NAMESPACE="package-smoke",
           )
           MicrosoftEntraAuth().init_app(app)
           assert "ms_entra_auth" in app.extensions
+          state = app.extensions["ms_entra_auth"]
+          state.storage.save("flow", b"payload", ttl=30)
+          assert state.storage.load("flow") == b"payload"
+          assert isinstance(MemoryStorage(), AuthStorage)
           assert version("flask-ms-entra-auth") == __version__
           PY

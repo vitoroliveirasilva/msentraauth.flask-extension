@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 from flask import Flask
 
-from flask_ms_entra_auth import MicrosoftEntraAuth
+from flask_ms_entra_auth import AuthStorage, MemoryStorage, MicrosoftEntraAuth
+from flask_ms_entra_auth.storage.namespaced import NamespacedStorage
 
 _VALID_CONFIG: dict[str, object] = {
     "MS_ENTRA_CLIENT_ID": "11111111-1111-1111-1111-111111111111",
@@ -177,3 +178,77 @@ def test_resolved_configuration_is_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         config.client_id = "changed"
+
+
+def test_init_app_registers_namespaced_storage() -> None:
+    app = create_app("storage-state", MS_ENTRA_SESSION_NAMESPACE="storage-state")
+
+    MicrosoftEntraAuth().init_app(app)
+
+    state = app.extensions["ms_entra_auth"]
+    assert isinstance(state.storage, AuthStorage)
+    assert isinstance(state.storage, NamespacedStorage)
+    assert state.storage.namespace == "storage-state"
+    state.storage.save("flow", b"value")
+    assert state.storage.load("flow") == b"value"
+
+
+def test_default_memory_storage_is_not_shared_between_apps() -> None:
+    extension = MicrosoftEntraAuth()
+    first_app = create_app("same-name")
+    second_app = create_app("same-name")
+    extension.init_app(first_app)
+    extension.init_app(second_app)
+
+    first_storage = first_app.extensions["ms_entra_auth"].storage
+    second_storage = second_app.extensions["ms_entra_auth"].storage
+    first_storage.save("cache", b"first")
+
+    assert second_storage.load("cache") is None
+
+
+def test_shared_backend_is_isolated_by_application_namespace() -> None:
+    backend = MemoryStorage()
+    extension = MicrosoftEntraAuth(storage=backend)
+    first_app = create_app("shared-first")
+    second_app = create_app("shared-second")
+    extension.init_app(first_app)
+    extension.init_app(second_app)
+
+    first_state = first_app.extensions["ms_entra_auth"]
+    second_state = second_app.extensions["ms_entra_auth"]
+    first_state.storage.save("cache", b"first")
+    second_state.storage.save("cache", b"second")
+
+    assert first_state.config.session_namespace != second_state.config.session_namespace
+    assert first_state.storage.load("cache") == b"first"
+    assert second_state.storage.load("cache") == b"second"
+
+
+def test_constructor_storage_namespace_overrides_app_configuration() -> None:
+    app = create_app("namespace-precedence", MS_ENTRA_SESSION_NAMESPACE="from-app")
+    extension = MicrosoftEntraAuth(session_namespace="from-constructor")
+
+    extension.init_app(app)
+
+    state = app.extensions["ms_entra_auth"]
+    assert state.config.session_namespace == "from-constructor"
+    assert state.storage.namespace == "from-constructor"
+
+
+def test_duplicate_initialization_preserves_storage_instance() -> None:
+    app = create_app("storage-idempotent")
+    extension = MicrosoftEntraAuth()
+    extension.init_app(app)
+    original_storage = app.extensions["ms_entra_auth"].storage
+
+    extension.init_app(app)
+
+    assert app.extensions["ms_entra_auth"].storage is original_storage
+
+
+def test_constructor_rejects_invalid_storage_backend() -> None:
+    invalid_storage: Any = object()
+
+    with pytest.raises(TypeError, match="AuthStorage"):
+        MicrosoftEntraAuth(storage=invalid_storage)

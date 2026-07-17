@@ -13,8 +13,8 @@ _VALID_CONFIG: dict[str, object] = {
 }
 
 
-def create_app(**overrides: object) -> Flask:
-    app = Flask("config-test")
+def create_app(name: str = "config-test", **overrides: object) -> Flask:
+    app = Flask(name)
     app.config.from_mapping(_VALID_CONFIG)
     app.config.update(overrides)
     return app
@@ -176,9 +176,7 @@ def test_http_redirect_is_rejected_outside_loopback() -> None:
         "https://app.example.com/auth/callback?source=entra",
     ],
 )
-def test_https_and_loopback_development_redirects_are_accepted(
-    redirect_uri: str,
-) -> None:
+def test_https_and_loopback_development_redirects_are_accepted(redirect_uri: str) -> None:
     app = create_app(MS_ENTRA_REDIRECT_URI=redirect_uri)
 
     MicrosoftEntraAuth().init_app(app)
@@ -247,11 +245,44 @@ def test_scope_generator_is_materialized_for_reuse_across_apps() -> None:
     extension.init_app(first_app)
     extension.init_app(second_app)
 
-    assert first_app.extensions["ms_entra_auth"].config.scopes == (
-        "User.Read",
-        "Mail.Read",
-    )
-    assert second_app.extensions["ms_entra_auth"].config.scopes == (
-        "User.Read",
-        "Mail.Read",
-    )
+    assert first_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
+    assert second_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
+
+
+def test_default_session_namespace_is_stable_and_application_specific() -> None:
+    first = create_app("namespace-first")
+    second = create_app("namespace-second")
+
+    MicrosoftEntraAuth().init_app(first)
+    MicrosoftEntraAuth().init_app(second)
+
+    first_namespace = first.extensions["ms_entra_auth"].config.session_namespace
+    second_namespace = second.extensions["ms_entra_auth"].config.session_namespace
+    assert first_namespace.startswith("app-")
+    assert len(first_namespace) == 28
+    assert first_namespace != second_namespace
+
+    repeated = create_app("namespace-first")
+    MicrosoftEntraAuth().init_app(repeated)
+    assert repeated.extensions["ms_entra_auth"].config.session_namespace == first_namespace
+
+
+def test_explicit_session_namespace_is_normalized_from_app_config() -> None:
+    app = create_app("namespace-explicit")
+    app.config["MS_ENTRA_SESSION_NAMESPACE"] = "  app.production_01  "
+
+    MicrosoftEntraAuth().init_app(app)
+
+    assert app.extensions["ms_entra_auth"].config.session_namespace == "app.production_01"
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    ["has space", "has:colon", "unsafe/segment", "x" * 129],
+)
+def test_invalid_session_namespace_is_rejected(namespace: str) -> None:
+    app = create_app("namespace-invalid")
+    app.config["MS_ENTRA_SESSION_NAMESPACE"] = namespace
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_SESSION_NAMESPACE"):
+        MicrosoftEntraAuth().init_app(app)

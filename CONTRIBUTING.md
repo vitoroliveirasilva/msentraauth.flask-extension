@@ -1,6 +1,6 @@
 # Contribuindo
 
-## Ambiente pretendido
+## Ambiente
 
 ```bash
 python -m venv .venv
@@ -53,13 +53,27 @@ Remove-Item Env:DIST_DIR
 - Código tipado e mypy em modo estrito;
 - Application factory;
 - Estado e configuração por aplicação em `app.extensions`;
-- Nenhuma credencial em código ou testes;
+- Nenhuma credencial ou token em código, teste ou log;
 - Testes de sucesso e falha;
 - API pública documentada;
 - Comentários explicam decisões, não repetem o código;
 - Nomes públicos em inglês e documentação em português;
 - Changelog e status atualizados no mesmo conjunto de mudanças.
 
+## Contrato de storage
+
+Todo backend deve implementar `load`, `save` e `delete` conforme `AuthStorage` e passar pela suíte contratual. Regras mínimas:
+
+- `load()` retorna `bytes` ou `None`;
+- `save()` aceita apenas bytes e TTL inteiro positivo ou `None`;
+- `delete()` é idempotente;
+- Valores expirados são tratados como ausentes;
+- Falhas externas são propagadas de forma segura como `StorageError`;
+- Chaves e valores nunca aparecem em mensagens de erro;
+- Concorrência e política de escrita precisam de testes explícitos.
+
+`MemoryStorage` existe somente para desenvolvimento e testes. Backends de produção devem considerar TLS, menor privilégio, expiração, proteção em repouso, múltiplos workers e indisponibilidade.
+
 ## Configuração em testes
 
-Use apenas valores sintéticos e nunca use tenant, client ID, client secret ou redirect URI reais. Testes devem também garantir que mensagens de erro e representações não exponham segredo.
+Use apenas valores sintéticos. Nunca use tenant, client ID, client secret, tokens, identificadores de sessão ou cache reais.

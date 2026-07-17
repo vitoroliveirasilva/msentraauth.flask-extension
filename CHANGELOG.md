@@ -2,29 +2,31 @@
 
 ## Adicionado
 
-- Resolução de configuração por argumentos da instância, `app.config` e padrões seguros;
-- Configuração imutável e isolada por aplicação;
-- Validação fail-fast de client ID, client secret, tenant ID e redirect URI;
-- Derivação e validação de authority;
-- Normalização e deduplicação de scopes;
-- Exceções públicas `MicrosoftEntraAuthError` e `ConfigurationError`;
-- Testes de configuração, precedência, isolamento, segurança e imutabilidade;
-- ADR sobre configuração validada por aplicação.
+- Contrato público e tipado `AuthStorage`;
+- `MemoryStorage` thread-safe para desenvolvimento e testes;
+- TTL com relógio monotônico, expiração preguiçosa e limpeza explícita;
+- Isolamento de chaves por namespace de aplicação;
+- Configuração `MS_ENTRA_SESSION_NAMESPACE` e argumento equivalente no construtor;
+- Injeção opcional de backend por `MicrosoftEntraAuth(storage=...)`;
+- Exceção pública `StorageError`;
+- Suíte contratual reutilizável e testes de concorrência, TTL, isolamento e falhas;
+- ADR sobre contrato, namespace, TTL e política last-write-wins.
 
 ## Alterado
 
-- `init_app()` passa a validar configuração antes de registrar estado;
-- Versão elevada para `0.2.0`;
-- Validação de distribuição deixa de fixar a versão em múltiplos arquivos;
-- README, API pública, arquitetura, exemplos, critérios e status atualizados.
+- `init_app()` passa a registrar storage namespaced no estado da aplicação;
+- Versão elevada para `0.3.0`;
+- Artefatos e smoke test passam a validar os módulos de storage;
+- Documentação de arquitetura, API, segurança, testes e status atualizada.
 
 ## Segurança
 
-- Client secret é omitido de representações e mensagens de erro;
-- Redirects HTTP externos são rejeitados;
-- Authority exige HTTPS e tenant coerente;
-- Placeholders e tenants genéricos são rejeitados.
+- Chaves e valores não são repetidos em mensagens de erro;
+- Falhas de backends externos são convertidas em `StorageError` com causa preservada;
+- Backends compartilhados recebem prefixo de namespace antes de qualquer operação;
+- TTL inválido, valores não binários e chaves inseguras são rejeitados.
 
 ## Limites
 
-- Nenhum cliente MSAL, storage, identidade, token, login, callback, rota ou chamada de rede foi implementado.
+- `MemoryStorage` não é seguro para produção, não é distribuído entre workers e perde dados no encerramento;
+- Nenhum token, fluxo MSAL, identidade, login, callback ou rota foi implementado.

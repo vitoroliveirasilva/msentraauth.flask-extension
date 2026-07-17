@@ -2,7 +2,7 @@
 
 ## Estado
 
-A resolução e validação descritas neste documento estão implementadas na ETAPA 01. Nenhum cliente MSAL é criado durante `init_app()`.
+A configuração principal foi implementada na ETAPA 01. A ETAPA 02 adiciona namespace de storage. Nenhum cliente MSAL é criado durante `init_app()`.
 
 ## Prefixo
 
@@ -17,49 +17,28 @@ Todas as chaves públicas usam `MS_ENTRA_`.
 |     `MS_ENTRA_TENANT_ID` | Tenant único permitido  |
 |  `MS_ENTRA_REDIRECT_URI` | URI absoluta registrada |
 
-Valores ausentes, não textuais, vazios ou reconhecidos como placeholders geram `ConfigurationError`.
-
 ## Opcionais implementadas
 
-|                Chave | Padrão                                       | Uso                      |
-| -------------------: | :------------------------------------------- | :----------------------- |
-| `MS_ENTRA_AUTHORITY` | `https://login.microsoftonline.com/<tenant>` | Authority futura do MSAL |
-|    `MS_ENTRA_SCOPES` | `("User.Read",)`                             | Scopes delegados futuros |
+|                        Chave | Padrão                                       | Uso                                  |
+| ---------------------------: | :------------------------------------------- | :----------------------------------- |
+|         `MS_ENTRA_AUTHORITY` | `https://login.microsoftonline.com/<tenant>` | Authority futura do MSAL             |
+|            `MS_ENTRA_SCOPES` | `("User.Read",)`                             | Scopes delegados futuros             |
+| `MS_ENTRA_SESSION_NAMESPACE` | derivado                                     | Prefixo lógico das chaves de storage |
 
-A authority deve:
+O namespace explícito aceita letras, números, ponto, sublinhado e hífen, com até 128 caracteres. Valores vazios, placeholders e caracteres fora desse conjunto geram `ConfigurationError`.
 
-- Usar HTTPS;
-- Ser absoluta e não conter credenciais, query string ou fragmento;
-- Conter exatamente um segmento de tenant;
-- Usar o mesmo tenant configurado em `MS_ENTRA_TENANT_ID`.
+Na ausência de valor explícito, o namespace é derivado de forma determinística do nome da aplicação, client ID e tenant ID. O client secret não participa do cálculo.
 
-Os scopes devem ser um iterável que não seja string. Entradas são aparadas, duplicatas exatas são removidas preservando a ordem e o resultado é armazenado como tupla imutável.
+Backends compartilhados por aplicações logicamente diferentes devem usar namespace explícito, exclusivo e estável entre reinícios e workers.
 
 ## Opcionais planejadas
 
-|                               Chave | Padrão    | Uso futuro      |
-| ----------------------------------: | :-------- | :-------------- |
-|               `MS_ENTRA_URL_PREFIX` | `/auth`   | Rotas           |
-| `MS_ENTRA_POST_LOGOUT_REDIRECT_URI` | local     | Pós-logout      |
-|     `MS_ENTRA_AUTO_REGISTER_ROUTES` | `True`    | Blueprint       |
-|        `MS_ENTRA_SESSION_NAMESPACE` | exclusivo | Chaves internas |
-|           `MS_ENTRA_ENABLE_PII_LOG` | `False`   | PII do MSAL     |
-
-Essas chaves ainda não são interpretadas.
-
-## Redirect URI
-
-A URI deve ser absoluta, usar HTTP ou HTTPS, não conter credenciais nem fragmento e possuir host válido.
-
-- HTTPS é aceito para hosts externos;
-- HTTP é aceito somente para desenvolvimento em loopback: `localhost`, `127.0.0.0/8` ou IPv6 loopback;
-- HTTP para hosts externos gera `ConfigurationError`.
-
-A extensão não descobre redirect URI por request, proxy ou header de host.
-
-## Tenant
-
-A implementação aceita identificadores compostos por letras, números, ponto e hífen. Os aliases `common`, `organizations` e `consumers` são rejeitados porque o escopo inicial é single-tenant.
+|                               Chave | Padrão  | Uso futuro  |
+| ----------------------------------: | :------ | :---------- |
+|               `MS_ENTRA_URL_PREFIX` | `/auth` | Rotas       |
+| `MS_ENTRA_POST_LOGOUT_REDIRECT_URI` | local   | Pós-logout  |
+|     `MS_ENTRA_AUTO_REGISTER_ROUTES` | `True`  | Blueprint   |
+|           `MS_ENTRA_ENABLE_PII_LOG` | `False` | PII do MSAL |
 
 ## Precedência
 
@@ -73,13 +52,18 @@ Exemplo:
 entra_auth = MicrosoftEntraAuth(
     tenant_id="tenant-fixo",
     scopes=["User.Read"],
+    session_namespace="app-principal",
 )
 ```
 
-O `tenant_id` acima prevalece sobre `MS_ENTRA_TENANT_ID`, enquanto as demais chaves ainda podem vir de cada aplicação.
-
 ## Imutabilidade e isolamento
 
-- A configuração resolvida é armazenada em objeto congelado no estado da aplicação;
-- Alterar `app.config` após a primeira inicialização não modifica a configuração já registrada;
-- Aplicações distintas recebem objetos de configuração distintos.
+A configuração resolvida é congelada. Alterar `app.config` após a primeira inicialização não modifica authority, scopes ou namespace já registrados.
+
+## Segredos
+
+- Client secret não possui padrão;
+- Erros não incluem valores recebidos;
+- A extensão não depende de `.env`;
+- Secret providers continuam responsabilidade da aplicação;
+- Namespace derivado não usa client secret.

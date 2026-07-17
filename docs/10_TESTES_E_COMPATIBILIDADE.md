@@ -9,50 +9,38 @@
 
 ## Casos implementados
 
-### Fundação e integração Flask
+### Fundação e configuração
 
-- Import e API pública;
-- Registro em `app.extensions`;
-- Mesma instância em duas aplicações;
-- Ausência de `self.app`;
-- Isolamento de estado e configuração;
-- Inicialização duplicada idempotente;
-- Conflito com outra instância;
-- Rejeição de argumento inválido;
-- Ausência de registro de rotas.
+Import, API pública, application factory, múltiplas apps, ausência de `self.app`, inicialização duplicada, configuração fail-fast, precedência, imutabilidade, authority, redirect URI, scopes e proteção de segredos.
 
-### Configuração
+### Storage
 
-- Precedência entre argumentos, `app.config` e padrões;
-- Campos obrigatórios ausentes, vazios, não textuais ou placeholders;
-- Proteção do client secret em mensagens e representação;
-- Tenant single-tenant e caracteres aceitos;
-- Authority derivada, customizada, divergente e malformada;
-- Redirect URI HTTPS, loopback HTTP e rejeição de HTTP externo;
-- Scopes padrão, inválidos, vazios, duplicados e geradores;
-- Configuração imutável após inicialização;
-- Uso da mesma instância em apps com configurações distintas.
+- Suíte contratual para backend direto e adaptador namespaced;
+- Ausência, save, load e delete idempotente;
+- Last-write-wins sequencial e concorrente;
+- TTL, expiração preguiçosa e limpeza explícita;
+- Chaves, valores, TTLs e namespaces inválidos;
+- Isolamento entre namespaces no mesmo backend;
+- Backend padrão separado entre aplicações;
+- Backend compartilhado com namespaces distintos;
+- Falhas externas encapsuladas e causa preservada;
+- Respostas inválidas do backend rejeitadas;
+- Armazenamento preservado em inicialização duplicada.
 
 ## Artefatos
 
-Após `python -m build`, a suíte de distribuição valida:
+Após `python -m build`, a suíte valida:
 
-- Existência de um wheel e um source distribution;
-- Versão nos nomes e no metadata;
-- Requisito de Python e dependências diretas;
-- Inclusão de `py.typed`, `config.py`, `errors.py` e `extension.py`;
-- Inclusão do código e dos testes no sdist.
+- Wheel e source distribution;
+- Versão e metadata;
+- Requisitos de Python e dependências diretas;
+- `py.typed`, configuração, erros, extensão e módulos de storage;
+- Testes de configuração, storage e contrato no sdist.
 
 ## Ferramentas
 
-- pytest e pytest-cov;
-- Ruff para lint e formatação;
-- mypy em modo estrito;
-- Bandit;
-- pip-audit;
-- build;
-- twine check.
+pytest, pytest-cov, Ruff, mypy estrito, Bandit, pip-audit, build e twine check.
 
 ## Camadas futuras
 
-Storage, identidade, fluxo, callback, token silencioso, logout, hooks e integração com o template pertencem às etapas seguintes.
+Identidade, fluxo, callback, token silencioso, logout, hooks e integração com o template pertencem às etapas seguintes.

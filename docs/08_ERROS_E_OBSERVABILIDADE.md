@@ -5,29 +5,28 @@
 ```text
 MicrosoftEntraAuthError
 ├── ConfigurationError
+├── StorageError
 ├── AuthenticationError
 │   ├── AuthenticationRequired
 │   ├── InvalidCallbackError
 │   ├── IdentityValidationError
 │   └── ConsentRequired
 ├── TokenAcquisitionError
-├── StorageError
 └── ProviderUnavailableError
 ```
 
 ## Garantias implementadas
 
-- Configuração ausente ou inválida gera `ConfigurationError` durante `init_app()`;
-- Mensagens indicam a chave ou a regra violada sem repetir o valor recebido;
-- Client secret não aparece na representação da configuração resolvida;
-- Erros de configuração surgem antes de qualquer chamada de rede;
-- A causa é previsível e pode ser tratada pela aplicação durante o startup.
+- Configuração inválida gera `ConfigurationError` durante `init_app()`;
+- Chave, valor, TTL ou operação de storage inválida gera `StorageError`;
+- Falhas externas de storage preservam a causa original em `__cause__`;
+- Mensagens públicas não repetem client secret, chave, valor ou erro bruto do backend;
+- Client secret não aparece na representação da configuração;
+- Erros surgem antes de qualquer chamada de rede.
 
-## Garantias futuras
+## Observabilidade atual
 
-- Erros previsíveis de autenticação não devem virar `500` por padrão;
-- Correlation ID poderá ser preservado;
-- Auth code, token e cache nunca entrarão na exceção pública.
+Nenhum evento estruturado ou integração de logging foi implementado. A aplicação pode capturar `ConfigurationError` e `StorageError` no startup ou em operações próprias, sem registrar a causa bruta quando ela puder conter dados sensíveis.
 
 ## Eventos planejados
 
@@ -41,16 +40,10 @@ MicrosoftEntraAuthError
 - `logout_completed`;
 - `storage_failure`.
 
-Nenhum evento ou integração de logging foi implementado na ETAPA 01.
-
 ## Permitido em logs futuros
 
 Timestamp, nível, evento, request ID, endpoint, código normalizado, correlation ID, duração e versão.
 
 ## Proibido em logs
 
-Client secret, Authorization, cookie, auth code, tokens, cache, claims completas e query string completa do callback.
-
-## Métricas
-
-O núcleo poderá expor hooks, mas não imporá biblioteca de telemetria. Logging de PII permanece desligado por padrão.
+Client secret, Authorization, cookie, auth code, tokens, cache, claims completas, chaves internas, identificadores de sessão e query string completa do callback.

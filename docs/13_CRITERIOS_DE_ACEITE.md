@@ -1,29 +1,28 @@
 # Critérios de aceite
 
-## Fundação: ETAPA 00
+## Fundação e configuração
 
-Todos os critérios permanecem atendidos: instalação, import, application factory, múltiplas apps, ausência de `self.app`, isolamento, pacote tipado, build, CI, qualidade e auditoria.
+Os critérios das ETAPAS 00 e 01 permanecem atendidos: instalação, application factory, múltiplas apps, ausência de `self.app`, configuração validada e imutável, pacote tipado, build, CI, qualidade e auditoria.
 
-## Configuração: ETAPA 01
+## Storage: ETAPA 02
 
-| Critério                                       |
-| ---------------------------------------------- |
-| Chaves obrigatórias validadas em `init_app()`  |
-| Precedência instância, `app.config` e padrões  |
-| Authority segura e coerente com tenant         |
-| Redirect URI absoluta e HTTPS fora de loopback |
-| Scopes normalizados e imutáveis                |
-| Placeholders rejeitados                        |
-| Client secret ausente dos erros e repr         |
-| Configuração congelada após inicialização      |
-| Configuração isolada entre aplicações          |
-| `ConfigurationError` público e tipado          |
-| Nenhuma rede, MSAL ou rota em `init_app()`     |
-| Testes de sucesso e falha                      |
-
-## Storage
-
-Não iniciado.
+| Critério                                                |
+| ------------------------------------------------------- |
+| `AuthStorage` público e tipado                          |
+| `MemoryStorage` funcional para desenvolvimento          |
+| `load`, `save` e `delete` cobertos por suíte contratual |
+| `delete()` idempotente                                  |
+| TTL positivo ou `None`                                  |
+| Expiração remove valor e retorna `None`                 |
+| Namespace por aplicação                                 |
+| Backend compartilhado isolado por namespace             |
+| Última escrita concluída prevalece                      |
+| Operações locais protegidas por lock                    |
+| Falhas externas convertidas em `StorageError`           |
+| Causa original preservada sem expor dados               |
+| Chave e valor ausentes das mensagens                    |
+| Storage preservado em inicialização duplicada           |
+| Nenhum token ou fluxo MSAL criado                       |
 
 ## Identidade
 

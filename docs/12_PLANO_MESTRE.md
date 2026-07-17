@@ -2,15 +2,15 @@
 
 ## Etapa 00: fundação
 
-Documentação coerente, estrutura `src`, `pyproject.toml`, pacote importável, versionamento, qualidade, testes mínimos, auditoria, build e CI.
+Documentação coerente, estrutura `src`, empacotamento, qualidade, testes, auditoria, build e CI.
 
-## Etapa 01: configuração
+## Etapa 01: configuração (Concluída)
 
-Validação fail-fast, precedência, configuração imutável por aplicação, authority, redirect URI, scopes, erros públicos e testes.
+Validação fail-fast, precedência, configuração imutável, authority, redirect URI, scopes e erros públicos.
 
-## Etapa 02: storage
+## Etapa 02: storage (Concluída)
 
-Protocol, storage de testes, namespace, TTL, erros e suíte contratual.
+Protocol, backend em memória, namespace, TTL, `StorageError`, concorrência local, last-write-wins e suíte contratual.
 
 ## Etapa 03: identidade
 
@@ -18,7 +18,7 @@ Modelo imutável, claims, tenant, contexto e `current_identity`.
 
 ## Etapa 04: MSAL
 
-Construção do client, token cache, seleção de conta e aquisição silenciosa.
+Construção do client, `SerializableTokenCache`, seleção de conta e aquisição silenciosa.
 
 ## Etapa 05: fluxo web
 
@@ -34,7 +34,7 @@ Autenticação, logout, erros e vínculo local.
 
 ## Etapa 08: hardening
 
-Threat model, logs, concorrência, falhas de storage e revisão de API.
+Threat model, logs, concorrência distribuída, falhas de storage e revisão de API.
 
 ## Etapa 09: template
 

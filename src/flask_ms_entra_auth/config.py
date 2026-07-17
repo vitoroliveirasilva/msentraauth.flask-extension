@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from hashlib import sha256
 from ipaddress import ip_address
 from typing import Final
 from urllib.parse import SplitResult, urlsplit
@@ -29,7 +30,7 @@ _PLACEHOLDERS: Final = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class MicrosoftEntraAuthConfig:
-    # Validação e imautabilidade da configuração do Microsoft Entra Auth para uma aplicação Flask
+    # Valida e imuta a configuração de uma aplicação Flask
 
     client_id: str
     client_secret: str = field(repr=False)
@@ -37,11 +38,12 @@ class MicrosoftEntraAuthConfig:
     redirect_uri: str
     authority: str
     scopes: tuple[str, ...]
+    session_namespace: str
 
 
 @dataclass(frozen=True, slots=True)
 class ConfigOverrides:
-    # Imutabilidade dos valores de nível de construtor com precedência sobre ``app.config``.
+    # Imuta e valida os valores de nível de construtor com precedência sobre ``app.config``
 
     client_id: str | None = None
     client_secret: str | None = None
@@ -49,13 +51,15 @@ class ConfigOverrides:
     redirect_uri: str | None = None
     authority: str | None = None
     scopes: Iterable[str] | None = None
+    session_namespace: str | None = None
 
 
 def resolve_config(
-    app_config: Mapping[str, object], overrides: ConfigOverrides
+    app_config: Mapping[str, object],
+    overrides: ConfigOverrides,
+    *,
+    app_name: str,
 ) -> MicrosoftEntraAuthConfig:
-    # Resolve constructor overrides, Flask configuration e safe defaults
-
     client_id = _required_text(
         "MS_ENTRA_CLIENT_ID",
         _pick(overrides.client_id, app_config, "MS_ENTRA_CLIENT_ID"),
@@ -87,6 +91,15 @@ def resolve_config(
     scopes_value = _pick(overrides.scopes, app_config, "MS_ENTRA_SCOPES")
     scopes = _validate_scopes(_DEFAULT_SCOPES if scopes_value is None else scopes_value)
 
+    namespace_value = _pick(overrides.session_namespace, app_config, "MS_ENTRA_SESSION_NAMESPACE")
+    session_namespace = (
+        _default_session_namespace(app_name, client_id, tenant_id)
+        if namespace_value is None
+        else _validate_session_namespace(
+            _required_text("MS_ENTRA_SESSION_NAMESPACE", namespace_value)
+        )
+    )
+
     return MicrosoftEntraAuthConfig(
         client_id=client_id,
         client_secret=client_secret,
@@ -94,6 +107,7 @@ def resolve_config(
         redirect_uri=redirect_uri,
         authority=authority,
         scopes=scopes,
+        session_namespace=session_namespace,
     )
 
 
@@ -222,3 +236,19 @@ def _validate_scopes(value: object) -> tuple[str, ...]:
     if not normalized:
         raise ConfigurationError("MS_ENTRA_SCOPES must contain at least one scope")
     return tuple(normalized)
+
+
+def _default_session_namespace(app_name: str, client_id: str, tenant_id: str) -> str:
+    payload = f"{app_name}\0{client_id}\0{tenant_id}".encode()
+    digest = sha256(payload).hexdigest()[:24]
+    return f"app-{digest}"
+
+
+def _validate_session_namespace(namespace: str) -> str:
+    if len(namespace) > 128 or any(
+        not (character.isalnum() or character in "._-") for character in namespace
+    ):
+        raise ConfigurationError(
+            "MS_ENTRA_SESSION_NAMESPACE must contain only letters, numbers, '.', '_' or '-'"
+        )
+    return namespace

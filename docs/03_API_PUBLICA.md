@@ -1,19 +1,20 @@
 # API pública
 
-## Disponível na ETAPA 01
+## Disponível na ETAPA 02
 
 ```python
 from flask_ms_entra_auth import (
+    AuthStorage,
     ConfigurationError,
+    MemoryStorage,
     MicrosoftEntraAuth,
     MicrosoftEntraAuthError,
+    StorageError,
     __version__,
 )
 ```
 
 ## `MicrosoftEntraAuth`
-
-### Construção
 
 O padrão recomendado permanece desacoplado da aplicação:
 
@@ -21,43 +22,61 @@ O padrão recomendado permanece desacoplado da aplicação:
 extension = MicrosoftEntraAuth()
 ```
 
-A construção aceita argumentos opcionais e imutáveis com precedência sobre `app.config`:
+A construção aceita configuração imutável e backend opcional:
 
 ```python
 extension = MicrosoftEntraAuth(
-    client_id="11111111-1111-1111-1111-111111111111",
+    client_id="client-id",
     client_secret="secret-provider-value",
-    tenant_id="contoso.onmicrosoft.com",
+    tenant_id="tenant-id",
     redirect_uri="https://app.example.com/auth/callback",
-    authority="https://login.microsoftonline.com/contoso.onmicrosoft.com",
     scopes=["User.Read"],
+    session_namespace="app-principal",
+    storage=meu_storage,
 )
-```
-
-Também é possível inicializar diretamente uma aplicação já configurada:
-
-```python
-extension = MicrosoftEntraAuth(app)
 ```
 
 ### `init_app(app)`
 
-- Exige uma instância de `flask.Flask` e rejeita outros valores com `TypeError`;
-- Resolve e valida a configuração antes de registrar estado;
+- Valida aplicação e configuração;
 - Registra estado em `app.extensions["ms_entra_auth"]`;
-- Suporta mais de uma aplicação com a mesma instância;
-- Mantém configuração e estado mutável separados entre aplicações;
+- Seleciona `MemoryStorage` quando não há backend explícito;
+- Aplica namespace antes de qualquer chamada ao backend;
+- Suporta múltiplas aplicações com a mesma instância;
 - Não armazena a aplicação em `self.app`;
-- Não faz chamada de rede;
-- Não inicializa MSAL;
-- Não registra rotas.
+- Não acessa rede, não inicializa MSAL e não registra rotas.
 
-### Inicialização duplicada
+## `AuthStorage`
 
-- Repetir `init_app()` com a mesma instância e aplicação é idempotente;
-- A configuração resolvida na primeira inicialização é preservada;
-- Uma instância diferente tentando registrar a mesma aplicação recebe `RuntimeError`;
-- Um valor incompatível já presente na chave também causa `RuntimeError`.
+Contrato estrutural e verificável em runtime:
+
+```python
+class AuthStorage(Protocol):
+    def load(self, key: str) -> bytes | None: ...
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
+    def delete(self, key: str) -> None: ...
+```
+
+### Garantias esperadas
+
+- Ausência ou expiração retorna `None`;
+- Valores são bytes;
+- TTL é inteiro positivo ou `None`;
+- `delete()` é idempotente;
+- Falhas de infraestrutura são representadas por `StorageError`.
+
+## `MemoryStorage`
+
+Backend público para desenvolvimento e testes:
+
+```python
+storage = MemoryStorage()
+storage.save("flow", b"payload", ttl=300)
+assert storage.load("flow") == b"payload"
+storage.delete("flow")
+```
+
+Também oferece `purge_expired() -> int`. Não é adequado para produção, múltiplos processos ou persistência após reinício.
 
 ## Erros públicos
 
@@ -67,29 +86,22 @@ Base para falhas previsíveis da extensão.
 
 ### `ConfigurationError`
 
-Indica ausência ou invalidade de configuração. As mensagens identificam a chave ou a regra violada sem incluir client secret ou outros valores sensíveis.
+Indica configuração ausente ou inválida.
+
+### `StorageError`
+
+Indica chave, valor, TTL, expiração ou operação de backend inválida. Quando uma falha externa é encapsulada, a causa original fica disponível em `__cause__`, sem ser copiada para a mensagem pública.
 
 ## Versão
 
-A versão pública é consultável por:
-
-```python
-from flask_ms_entra_auth import __version__
-```
-
-A fonte única é `src/flask_ms_entra_auth/_version.py`, usada também pelo Hatchling para gerar o metadata da distribuição.
+A versão pública vem de `src/flask_ms_entra_auth/_version.py` e é usada dinamicamente pelo Hatchling.
 
 ## API planejada, não implementada
 
-As APIs abaixo permanecem propostas para etapas posteriores:
-
-- Contratos e implementações de storage;
 - Identidade e `current_identity`;
 - `register_routes`;
-- `begin_login`;
-- `complete_login`;
-- `acquire_token`;
-- `logout`;
-- `login_required`;
-- Hooks de autenticação;
-- Exceções de autenticação, storage e token.
+- `begin_login` e `complete_login`;
+- Aquisição silenciosa de token;
+- Logout e decorators;
+- Hooks;
+- Serialização e uso real do token cache MSAL.

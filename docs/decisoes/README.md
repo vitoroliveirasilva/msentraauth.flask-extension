@@ -11,3 +11,5 @@
 | 007 |                     Autorização fora do núcleo |
 | 008 |                            Template consumidor |
 | 009 | Estado por aplicação e inicialização duplicada |
+| 010 | Configuração validada e imutável por aplicação |
+| 011 |   Storage, namespace, TTL e concorrência local |

@@ -1,6 +1,6 @@
 # Arquitetura
 
-## Estado atual: ETAPA 01
+## Estado atual: ETAPA 02
 
 ```text
 Aplicação Flask
@@ -9,11 +9,14 @@ Aplicação Flask
 MicrosoftEntraAuth.init_app(app)
       |
       +-- resolve e valida configuração
+      +-- seleciona backend de storage
+      +-- aplica namespace da aplicação
       |
       v
 app.extensions["ms_entra_auth"]
       |
       +-- configuração imutável
+      +-- storage namespaced
       +-- estado mutável exclusivo da aplicação
 ```
 
@@ -28,37 +31,46 @@ src/flask_ms_entra_auth/
 ├── config.py
 ├── errors.py
 ├── extension.py
-└── py.typed
+├── py.typed
+└── storage/
+    ├── __init__.py
+    ├── base.py
+    ├── memory.py
+    ├── namespaced.py
+    └── validation.py
 ```
 
 ### Responsabilidades atuais
 
-- `__init__.py`: API pública tipada;
-- `_version.py`: fonte única da versão;
-- `config.py`: precedência, normalização e validação de configuração;
+- `config.py`: precedência, normalização e configuração de namespace;
 - `errors.py`: exceções públicas previsíveis;
-- `extension.py`: integração com o ciclo de vida Flask e estado por aplicação;
-- `py.typed`: declaração de pacote tipado.
+- `extension.py`: integração Flask, seleção do backend e estado por aplicação;
+- `storage/base.py`: contrato `AuthStorage`;
+- `storage/memory.py`: backend em memória com TTL e lock;
+- `storage/namespaced.py`: isolamento de chaves antes da delegação;
+- `storage/validation.py`: validação segura de chave, valor, TTL e namespace.
 
-## Configuração por aplicação
+## Storage por aplicação
 
-Cada aplicação recebe uma configuração resolvida e imutável. A ordem de precedência é:
+Cada estado registrado contém uma visão namespaced do backend. A aplicação usa apenas chaves lógicas, enquanto o adaptador delega ao backend chaves no formato:
 
-1. Argumentos fornecidos à instância de `MicrosoftEntraAuth`;
-2. Balores de `app.config`;
-3. Padrões seguros para authority e scopes.
+```text
+msentra:<namespace>:<chave-logica>
+```
 
-A mesma instância pode inicializar aplicações com configurações diferentes quando os valores vêm de cada `app.config`. Nenhuma configuração resolvida é armazenada globalmente ou compartilhada entre apps.
+Quando nenhum backend é fornecido, cada aplicação recebe um `MemoryStorage` independente. Quando um backend é compartilhado, o namespace impede colisões entre aplicações configuradas com identificadores distintos.
+
+O namespace pode ser definido por `MS_ENTRA_SESSION_NAMESPACE` ou argumento do construtor. Na ausência de valor explícito, ele é derivado de forma determinística a partir do nome da aplicação, client ID e tenant ID, sem incluir client secret.
+
+## Concorrência e TTL
+
+`MemoryStorage` usa `RLock` para tornar operações individuais atômicas. A política é last-write-wins: a última escrita concluída para uma chave substitui a anterior.
+
+TTL é calculado com relógio monotônico. Valores expirados são removidos durante `load()` ou por `purge_expired()`.
 
 ## Estado por aplicação
 
-Cada aplicação recebe uma instância própria de estado em `app.extensions["ms_entra_auth"]`. A extensão não armazena `app` em atributo permanente.
-
-A inicialização duplicada possui contrato explícito:
-
-- Mesma instância e mesma aplicação: operação idempotente que preserva configuração e estado;
-- Instância diferente e chave já registrada: `RuntimeError`;
-- Valor estranho já presente na chave: `RuntimeError`.
+A mesma instância de `MicrosoftEntraAuth` pode inicializar várias aplicações. A extensão não guarda `app` em atributo permanente. Inicialização duplicada da mesma instância preserva configuração, storage e estado originais.
 
 ## Arquitetura planejada
 
@@ -80,14 +92,10 @@ MSAL Python
 Microsoft Entra ID
 ```
 
-Os módulos de identidade, decorators, contexto, autenticação, storage, hooks e typing permanecem futuros.
-
 ## Dependências
 
-O núcleo declara Flask `3.1.x` e MSAL `1.x`. O MSAL permanece somente como dependência declarada: nenhum módulo atual importa ou inicializa a biblioteca.
-
-Redis, Flask-Login e clientes Graph permanecem opcionais ou externos ao núcleo.
+O núcleo declara Flask `3.1.x` e MSAL `1.x`. Nenhum módulo atual importa ou inicializa o MSAL. Redis, Flask-Login, SQLAlchemy e clientes Graph permanecem opcionais ou externos ao núcleo.
 
 ## Fronteiras
 
-A extensão validará autenticação e cache em etapas futuras. A aplicação continua responsável por usuário local, autorização, banco, interface, storage de produção, secret providers e chamadas downstream.
+O storage desta etapa é byte-oriented e não conhece tokens, identidade, sessão Flask ou formato MSAL. Serialização de token cache será responsabilidade da etapa MSAL e deverá usar `SerializableTokenCache`.

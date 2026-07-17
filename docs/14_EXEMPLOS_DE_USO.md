@@ -1,8 +1,8 @@
 # Exemplos de uso
 
-## Disponível na ETAPA 01
+## Disponível na ETAPA 02
 
-### Application factory com `app.config`
+### Application factory com storage padrão
 
 ```python
 from flask import Flask
@@ -18,56 +18,77 @@ def create_app() -> Flask:
         MS_ENTRA_CLIENT_SECRET="secret-provider-value",
         MS_ENTRA_TENANT_ID="tenant-id",
         MS_ENTRA_REDIRECT_URI="https://app.example.com/auth/callback",
-        MS_ENTRA_SCOPES=["User.Read"],
+        MS_ENTRA_SESSION_NAMESPACE="app-principal",
     )
     entra_auth.init_app(app)
     return app
 ```
 
-### Argumentos imutáveis da instância
+A aplicação recebe `MemoryStorage` isolado (use apenas em desenvolvimento e testes).
+
+### Backend próprio
 
 ```python
+from flask_ms_entra_auth import AuthStorage, MicrosoftEntraAuth
+
+
+class RedisStorage:
+    def load(self, key: str) -> bytes | None:
+        return redis_client.get(key)
+
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None:
+        redis_client.set(key, value, ex=ttl)
+
+    def delete(self, key: str) -> None:
+        redis_client.delete(key)
+
+
+storage: AuthStorage = RedisStorage()
 entra_auth = MicrosoftEntraAuth(
-    tenant_id="tenant-id",
-    authority="https://login.microsoftonline.com/tenant-id",
-    scopes=["User.Read", "Mail.Read"],
+    storage=storage,
+    session_namespace="app-principal",
 )
 ```
 
-Valores não definidos na instância continuam sendo lidos de `app.config`.
+O exemplo ilustra o contrato, mas Redis não é dependência nem implementação fornecida pelo pacote.
 
-### Duas aplicações com a mesma instância
+### Uso direto de `MemoryStorage`
 
 ```python
-app_a = Flask("app_a")
-app_b = Flask("app_b")
+from flask_ms_entra_auth import MemoryStorage
 
-app_a.config.from_mapping(...)
-app_b.config.from_mapping(...)
-
-entra_auth.init_app(app_a)
-entra_auth.init_app(app_b)
+storage = MemoryStorage()
+storage.save("flow", b"serialized", ttl=300)
+value = storage.load("flow")
+storage.delete("flow")
 ```
 
-Cada aplicação recebe configuração e estado próprios em `app.extensions["ms_entra_auth"]`.
-
-### Tratamento de configuração inválida
+### Tratamento de falha
 
 ```python
-from flask_ms_entra_auth import ConfigurationError
+from flask_ms_entra_auth import StorageError
 
 try:
-    entra_auth.init_app(app)
-except ConfigurationError as exc:
-    app.logger.error("Configuração Microsoft Entra inválida: %s", exc)
+    storage.save("flow", b"serialized", ttl=300)
+except StorageError as exc:
+    app.logger.error("Falha segura de storage: %s", exc)
 ```
 
-A mensagem não contém client secret.
+Não registre `exc.__cause__` sem sanitização, pois a implementação externa pode incluir detalhes sensíveis.
 
-### Consulta de versão
+### Duas aplicações com backend compartilhado
 
 ```python
-from flask_ms_entra_auth import __version__
+backend = MeuStorage()
+extension = MicrosoftEntraAuth(storage=backend)
 
-print(__version__)
+app_a.config["MS_ENTRA_SESSION_NAMESPACE"] = "app-a"
+app_b.config["MS_ENTRA_SESSION_NAMESPACE"] = "app-b"
+
+extension.init_app(app_a)
+extension.init_app(app_b)
 ```
+
+## Planejado, não disponível
+
+Identidade, rotas protegidas, token para Graph, hooks, login, callback, logout e uso real do cache MSAL dependem das etapas seguintes. A versão `0.3.0` não exporta essas APIs.

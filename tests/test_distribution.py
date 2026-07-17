@@ -34,6 +34,10 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert "flask_ms_entra_auth/config.py" in names
         assert "flask_ms_entra_auth/errors.py" in names
         assert "flask_ms_entra_auth/extension.py" in names
+        assert "flask_ms_entra_auth/storage/base.py" in names
+        assert "flask_ms_entra_auth/storage/memory.py" in names
+        assert "flask_ms_entra_auth/storage/namespaced.py" in names
+        assert "flask_ms_entra_auth/storage/validation.py" in names
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = wheel.read(metadata_name).decode()
         assert f"Version: {__version__}" in metadata
@@ -47,3 +51,5 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert any(name.endswith("/src/flask_ms_entra_auth/config.py") for name in names)
         assert any(name.endswith("/pyproject.toml") for name in names)
         assert any(name.endswith("/tests/test_config.py") for name in names)
+        assert any(name.endswith("/tests/test_storage.py") for name in names)
+        assert any(name.endswith("/tests/test_storage_contract.py") for name in names)
