@@ -18,8 +18,6 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Reinstale o pacote editável após alterar `_version.py`, para manter o metadata do ambiente sincronizado.
-
 ## Validação obrigatória
 
 ```bash
@@ -42,38 +40,43 @@ pytest tests/test_distribution.py --no-cov
 Remove-Item Env:DIST_DIR
 ```
 
-## Branches
-
-- `dev`: desenvolvimento;
-- `prod`: estado estável.
-
 ## Padrões
 
-- Python 3.11 ou superior;
 - Código tipado e mypy em modo estrito;
-- Application factory;
-- Estado e configuração por aplicação em `app.extensions`;
-- Nenhuma credencial ou token em código, teste ou log;
-- Testes de sucesso e falha;
+- Application factory e estado por aplicação em `app.extensions`;
+- Estado por requisição somente no contexto Flask;
+- Nenhuma aplicação armazenada permanentemente em `self.app`;
+- Nenhuma credencial, token, cache ou claim real em código, teste ou log;
+- Testes de sucesso, falha, isolamento e sanitização;
 - API pública documentada;
-- Comentários explicam decisões, não repetem o código;
 - Nomes públicos em inglês e documentação em português;
 - Changelog e status atualizados no mesmo conjunto de mudanças.
 
-## Contrato de storage
+## Identidade
 
-Todo backend deve implementar `load`, `save` e `delete` conforme `AuthStorage` e passar pela suíte contratual. Regras mínimas:
+- `Identity` deve permanecer imutável e sem credenciais;
+- `tenant_id` e `object_id` formam a identidade estável;
+- Email, username e display name são apenas apresentação;
+- Claims devem ser JSON-compatible e somente leitura;
+- Access token, refresh token, client secret, token cache e ID token bruto são proibidos em `Identity`;
+- Alterações no contrato público exigem testes e documentação.
 
-- `load()` retorna `bytes` ou `None`;
-- `save()` aceita apenas bytes e TTL inteiro positivo ou `None`;
-- `delete()` é idempotente;
-- Valores expirados são tratados como ausentes;
-- Falhas externas são propagadas de forma segura como `StorageError`;
-- Chaves e valores nunca aparecem em mensagens de erro;
-- Concorrência e política de escrita precisam de testes explícitos.
+## MSAL e token cache
 
-`MemoryStorage` existe somente para desenvolvimento e testes. Backends de produção devem considerar TLS, menor privilégio, expiração, proteção em repouso, múltiplos workers e indisponibilidade.
+- OAuth, OIDC, refresh e cache de tokens pertencem ao MSAL;
+- Use somente `SerializableTokenCache` para serialização;
+- Não leia, altere ou persista refresh tokens diretamente;
+- O cliente MSAL deve continuar lazy e não pode ser criado em `init_app()`;
+- Testes não podem acessar rede e devem injetar uma fábrica de cliente;
+- Cache persistente deve ser isolado por aplicação e conta;
+- Erros do provedor não podem copiar `error_description`, token ou resposta bruta;
+- Tokens retornados existem apenas no servidor.
 
-## Configuração em testes
+## Storage
 
-Use apenas valores sintéticos. Nunca use tenant, client ID, client secret, tokens, identificadores de sessão ou cache reais.
+Todo backend deve implementar `load`, `save` e `delete` conforme `AuthStorage`. `MemoryStorage` existe apenas para desenvolvimento e testes. Backends de produção devem considerar TLS, menor privilégio, expiração, proteção em repouso, múltiplos workers e indisponibilidade.
+
+## Branches
+
+- `dev`: desenvolvimento e integração;
+- `prod`: estado considerado estável.

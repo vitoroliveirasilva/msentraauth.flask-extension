@@ -34,6 +34,11 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert "flask_ms_entra_auth/config.py" in names
         assert "flask_ms_entra_auth/errors.py" in names
         assert "flask_ms_entra_auth/extension.py" in names
+        assert "flask_ms_entra_auth/identity.py" in names
+        assert "flask_ms_entra_auth/context.py" in names
+        assert "flask_ms_entra_auth/auth/client.py" in names
+        assert "flask_ms_entra_auth/auth/service.py" in names
+        assert "flask_ms_entra_auth/auth/token_cache.py" in names
         assert "flask_ms_entra_auth/storage/base.py" in names
         assert "flask_ms_entra_auth/storage/memory.py" in names
         assert "flask_ms_entra_auth/storage/namespaced.py" in names
@@ -53,3 +58,6 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert any(name.endswith("/tests/test_config.py") for name in names)
         assert any(name.endswith("/tests/test_storage.py") for name in names)
         assert any(name.endswith("/tests/test_storage_contract.py") for name in names)
+        assert any(name.endswith("/tests/test_identity.py") for name in names)
+        assert any(name.endswith("/tests/test_context.py") for name in names)
+        assert any(name.endswith("/tests/auth/test_service.py") for name in names)

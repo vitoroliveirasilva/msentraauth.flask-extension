@@ -2,46 +2,34 @@
 
 ## Esquema
 
-O projeto usa Semantic Versioning. Durante a série `0.x`, a API permanece experimental.
+SemVer: `MAJOR.MINOR.PATCH`.
 
-## Versão atual
+A série `0.x` é experimental. As ETAPAS 03 e 04 formam uma única entrega funcional compatível e elevam a versão de `0.3.0` para `0.4.0`.
 
-- Versão de desenvolvimento: `0.3.0`;
-- Etapas concluídas: fundação, configuração e storage;
-- Estado: não publicada no PyPI;
-- Fonte única: `src/flask_ms_entra_auth/_version.py`;
-- Metadata de build: lido dinamicamente pelo Hatchling.
+## Fonte única
 
-A adição do contrato público de storage, `MemoryStorage` e `StorageError` elevou a versão minor da série experimental.
-
-## Dependências diretas
-
-- `Flask>=3.1,<3.2`;
-- `msal>=1.37,<2`.
-
-Nenhuma dependência obrigatória foi adicionada para storage.
+`src/flask_ms_entra_auth/_version.py` é lido pelo Hatchling e exportado como `__version__`.
 
 ## Artefatos
 
-Source distribution, wheel universal, metadata completa, `py.typed`, changelog e documentação.
+- Source distribution;
+- Wheel universal Python 3;
+- Metadata completa;
+- `py.typed`;
+- Módulos de identidade, contexto, MSAL e storage;
+- Changelog e status.
 
-## Validação atual
+## Processo de validação
 
-1. Instalação editável;
-2. Lint e formatação;
-3. Tipagem estrita;
-4. Testes e cobertura;
-5. Bandit e pip-audit;
-6. Build isolado;
+1. Ruff;
+2. mypy estrito;
+3. pytest e cobertura;
+4. Bandit;
+5. pip-audit;
+6. build isolado;
 7. `twine check`;
 8. Inspeção de wheel e sdist;
-9. Instalação do wheel e smoke test com configuração e storage.
+9. Instalação do wheel em ambiente vazio;
+10. Smoke test sem rede.
 
-## Processo futuro de publicação
-
-TestPyPI, tags, GitHub Releases e PyPI permanecem fora do escopo atual.
-
-## Branches
-
-- `dev`: evolução;
-- `prod`: estado estável.
+TestPyPI, tag, release e PyPI permanecem fora do escopo atual.

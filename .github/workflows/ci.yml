@@ -85,7 +85,13 @@ jobs:
           .package-venv/bin/python -m pip install dist/*.whl
           .package-venv/bin/python - <<'PY'
           from flask import Flask
-          from flask_ms_entra_auth import AuthStorage, MemoryStorage, MicrosoftEntraAuth, __version__
+          from flask_ms_entra_auth import (
+              AuthStorage,
+              Identity,
+              MemoryStorage,
+              MicrosoftEntraAuth,
+              __version__,
+          )
 
           from importlib.metadata import version
 
@@ -103,5 +109,12 @@ jobs:
           state.storage.save("flow", b"payload", ttl=30)
           assert state.storage.load("flow") == b"payload"
           assert isinstance(MemoryStorage(), AuthStorage)
+          identity = Identity.from_claims(
+              {"oid": "smoke-object", "tid": "smoke.example.com"},
+              home_account_id="smoke-home",
+              expected_tenant_id="smoke.example.com",
+          )
+          assert identity.stable_id == ("smoke.example.com", "smoke-object")
+          assert state.msal.config is state.config
           assert version("flask-ms-entra-auth") == __version__
           PY

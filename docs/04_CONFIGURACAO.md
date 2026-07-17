@@ -1,12 +1,12 @@
 # Configuração
 
-## Estado
+## Precedência
 
-A configuração principal foi implementada na ETAPA 01. A ETAPA 02 adiciona namespace de storage. Nenhum cliente MSAL é criado durante `init_app()`.
+1. Argumentos do construtor;
+2. `app.config`;
+3. Padrões seguros.
 
-## Prefixo
-
-Todas as chaves públicas usam `MS_ENTRA_`.
+A configuração é resolvida uma vez por aplicação e armazenada em dataclass congelada.
 
 ## Obrigatórias
 
@@ -19,51 +19,34 @@ Todas as chaves públicas usam `MS_ENTRA_`.
 
 ## Opcionais implementadas
 
-|                        Chave | Padrão                                       | Uso                                  |
-| ---------------------------: | :------------------------------------------- | :----------------------------------- |
-|         `MS_ENTRA_AUTHORITY` | `https://login.microsoftonline.com/<tenant>` | Authority futura do MSAL             |
-|            `MS_ENTRA_SCOPES` | `("User.Read",)`                             | Scopes delegados futuros             |
-| `MS_ENTRA_SESSION_NAMESPACE` | derivado                                     | Prefixo lógico das chaves de storage |
+|                        Chave | Padrão                                       | Uso                           |
+| ---------------------------: | :------------------------------------------- | :---------------------------- |
+|         `MS_ENTRA_AUTHORITY` | `https://login.microsoftonline.com/<tenant>` | Authority MSAL                |
+|            `MS_ENTRA_SCOPES` | `("User.Read",)`                             | Scopes delegados padrão       |
+| `MS_ENTRA_SESSION_NAMESPACE` | hash de app/client/tenant                    | Namespace do storage          |
+|   `MS_ENTRA_TOKEN_CACHE_TTL` | `28800`                                      | TTL do cache MSAL em segundos |
 
-O namespace explícito aceita letras, números, ponto, sublinhado e hífen, com até 128 caracteres. Valores vazios, placeholders e caracteres fora desse conjunto geram `ConfigurationError`.
+O construtor aceita argumentos equivalentes em snake_case.
 
-Na ausência de valor explícito, o namespace é derivado de forma determinística do nome da aplicação, client ID e tenant ID. O client secret não participa do cálculo.
+## `MS_ENTRA_TOKEN_CACHE_TTL`
 
-Backends compartilhados por aplicações logicamente diferentes devem usar namespace explícito, exclusivo e estável entre reinícios e workers.
+Deve ser inteiro positivo. Booleanos, strings, zero e negativos são rejeitados. O valor padrão de oito horas é provisório para a série experimental e pode ser alinhado à política de sessão quando o fluxo web for implementado.
 
-## Opcionais planejadas
+## Validação
 
-|                               Chave | Padrão  | Uso futuro  |
-| ----------------------------------: | :------ | :---------- |
-|               `MS_ENTRA_URL_PREFIX` | `/auth` | Rotas       |
-| `MS_ENTRA_POST_LOGOUT_REDIRECT_URI` | local   | Pós-logout  |
-|     `MS_ENTRA_AUTO_REGISTER_ROUTES` | `True`  | Blueprint   |
-|           `MS_ENTRA_ENABLE_PII_LOG` | `False` | PII do MSAL |
+- Vazios e placeholders falham cedo;
+- Tenant genérico (`common`, `organizations`, `consumers`) é rejeitado;
+- Authority exige HTTPS e tenant correspondente;
+- Redirect HTTP é permitido somente em loopback;
+- Scopes são aparados, deduplicados e congelados;
+- Namespace aceita apenas letras, números, `.`, `_` e `-`;
+- Client secret não aparece em representação ou mensagens;
+- Configuração não muda após `init_app()`.
 
-## Precedência
+## Fábrica MSAL
 
-1. Argumentos imutáveis da instância;
-2. `app.config`;
-3. Padrões seguros.
+`msal_client_factory` não é chave de `app.config`, mas sim argumento avançado do construtor para testes. Deve ser callable e não é serializado. O cliente padrão recebe client ID, client secret, authority, token cache e `enable_pii_log=False`.
 
-Exemplo:
+## `.env`
 
-```python
-entra_auth = MicrosoftEntraAuth(
-    tenant_id="tenant-fixo",
-    scopes=["User.Read"],
-    session_namespace="app-principal",
-)
-```
-
-## Imutabilidade e isolamento
-
-A configuração resolvida é congelada. Alterar `app.config` após a primeira inicialização não modifica authority, scopes ou namespace já registrados.
-
-## Segredos
-
-- Client secret não possui padrão;
-- Erros não incluem valores recebidos;
-- A extensão não depende de `.env`;
-- Secret providers continuam responsabilidade da aplicação;
-- Namespace derivado não usa client secret.
+A extensão não carrega `.env`. Secret providers, rotação e injeção de configuração permanecem responsabilidade da aplicação.

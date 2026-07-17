@@ -2,27 +2,46 @@
 
 ## Etapa atual
 
-ETAPA 02: storage.
+ETAPAS 03 e 04 concluídas em conjunto: identidade e núcleo MSAL.
 
 ## Decisões tomadas
 
-- Versão elevada de `0.2.0` para `0.3.0`;
-- `AuthStorage` é um `Protocol` público e verificável em runtime;
-- Contrato mínimo permanece `load`, `save` e `delete` com valores binários;
-- `MemoryStorage` é fornecido somente para desenvolvimento e testes;
-- Cada aplicação recebe backend próprio em memória quando nenhum storage é injetado;
-- Backends injetados são acessados por adaptador namespaced;
-- Namespace explícito usa `MS_ENTRA_SESSION_NAMESPACE` ou argumento do construtor;
-- Namespace padrão é derivado de nome da app, client ID e tenant ID, sem client secret;
-- Chaves delegadas usam prefixo `msentra:<namespace>:`;
-- TTL aceita inteiro positivo em segundos ou `None`;
-- Expiração em memória usa relógio monotônico;
-- `delete()` é idempotente;
-- Operações em memória usam `RLock`;
-- Política de concorrência é last-write-wins;
-- Falhas externas são convertidas em `StorageError` com causa preservada;
-- Mensagens públicas não repetem chave, valor ou erro bruto do backend;
-- Nenhum token, cache MSAL, identidade ou fluxo de autenticação foi criado.
+### Identidade
+
+- `Identity` é dataclass pública, congelada, com slots e `repr` sanitizado;
+- `oid`, `tid` e `home_account_id` são obrigatórios;
+- `stable_id` é `(tenant_id, object_id)`;
+- Username e display name são somente apresentação;
+- Claims são copiadas e congeladas recursivamente;
+- Somente valores compatíveis com JSON são aceitos;
+- Claims de access token, refresh token, ID token bruto, client secret e token cache são rejeitadas;
+- `current_identity` usa `LocalProxy` e contexto Flask por requisição;
+- Ausência de contexto, extensão ou autenticação falha explicitamente;
+- Vinculação da identidade permanece seam interna até o callback futuro.
+
+### MSAL
+
+- `MsalService` é registrado por aplicação, mas não mantém estado de usuário;
+- `ConfidentialClientApplication` é criado somente durante operação MSAL;
+- `init_app()` continua sem rede e sem inicialização de cliente;
+- Fábrica de cliente é injetável para testes determinísticos sem rede;
+- Cliente padrão usa `enable_pii_log=False`;
+- Token cache usa exclusivamente `SerializableTokenCache`;
+- Um cache é persistido por `home_account_id` dentro do namespace da aplicação;
+- A chave de cache usa SHA-256 e não expõe o identificador em texto claro;
+- Cache é salvo somente quando `has_state_changed` é verdadeiro;
+- TTL padrão é 28.800 segundos e pode ser configurado por `MS_ENTRA_TOKEN_CACHE_TTL`;
+- Conta é selecionada por correspondência exata de `home_account_id`;
+- Aquisição usa `acquire_token_silent_with_error` para classificar falhas com segurança;
+- Access token é retornado somente ao código servidor;
+- Refresh tokens não são lidos ou manipulados diretamente.
+
+### Erros
+
+- Adicionados `AuthenticationError`, `AuthenticationRequired`, `IdentityValidationError`, `ConsentRequired`, `TokenAcquisitionError` e `ProviderUnavailableError`;
+- `TokenAcquisitionError` expõe somente código e correlation ID sanitizados;
+- `error_description`, resposta bruta, token e cache não entram na mensagem pública;
+- Causas técnicas ficam em `__cause__` para diagnóstico controlado.
 
 ## Comandos
 
@@ -30,7 +49,7 @@ ETAPA 02: storage.
 python -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
 
-.venv/bin/ruff format .
+.venv/bin/ruff format src tests
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy src tests
@@ -48,15 +67,22 @@ python -m venv .package-venv
 .package-venv/bin/python -m pip install dist/*.whl
 ```
 
-## Riscos
+## Divergências resolvidas
 
-- `MemoryStorage` perde dados ao reiniciar e não compartilha estado entre processos;
-- Namespace derivado depende do nome da aplicação, client ID e tenant ID;
-- Aplicações distintas que compartilham backend devem definir namespace explícito quando a derivação não representar sua fronteira lógica;
-- A política last-write-wins não detecta conflitos;
-- Causas de exceções externas podem conter dados sensíveis e não devem ser logadas sem sanitização;
-- Token cache e serialização ainda não foram implementados.
+- A documentação anterior marcava identidade, cliente MSAL, cache e aquisição silenciosa como não iniciados. Mas agora distingue os recursos implementados do fluxo web ainda ausente;
+- A configuração não possuía TTL para cache real; foi adicionado `MS_ENTRA_TOKEN_CACHE_TTL`;
+- A hierarquia de erros documentada era apenas planejada; os erros necessários às ETAPAS 03 e 04 foram implementados;
+- O storage existia sem receber cache real; agora persiste apenas serialização produzida pelo MSAL;
+- Os exemplos antigos não podiam demonstrar identidade nem token silencioso; foram atualizados com avisos de que o callback ainda não existe.
+
+## Riscos e limitações
+
+- A política de concorrência continua last-write-wins, sem CAS ou detecção de conflito;
+- A identidade é request-local, mas ainda não é restaurada automaticamente entre requisições;
+- `acquire_token()` depende de uma identidade vinculada, que somente o fluxo futuro fornecerá automaticamente;
+- Criar o cliente ou renovar token pode acessar rede durante `acquire_token()`, nunca durante `init_app()`;
+- Causas originais de exceções podem conter dados sensíveis e não devem ser registradas sem sanitização.
 
 ## Declaração de escopo
 
-Nenhuma funcionalidade de identidade, `current_identity`, login, callback, logout, token cache MSAL, aquisição silenciosa, decorators, hooks, Redis, Flask-Login, Microsoft Graph, templates, frontend, Docker, deploy ou publicação foi iniciada.
+As ETAPAS 03 e 04 foram implementadas. A ETAPA 05 não foi iniciada. Não foram criados login, callback, Authorization Code Flow, state, nonce, replay protection, rotas, blueprint, logout, decorators, hooks, Redis, Flask-Login, Microsoft Graph, templates, frontend, Docker, deploy ou publicação no PyPI.

@@ -2,13 +2,21 @@ from importlib.metadata import version
 
 import flask_ms_entra_auth
 from flask_ms_entra_auth import (
+    AuthenticationError,
+    AuthenticationRequired,
     AuthStorage,
     ConfigurationError,
+    ConsentRequired,
+    Identity,
+    IdentityValidationError,
     MemoryStorage,
     MicrosoftEntraAuth,
     MicrosoftEntraAuthError,
+    ProviderUnavailableError,
     StorageError,
+    TokenAcquisitionError,
     __version__,
+    current_identity,
 )
 
 
@@ -17,26 +25,51 @@ def test_package_can_be_imported() -> None:
 
 
 def test_public_symbols_are_exported() -> None:
-    assert flask_ms_entra_auth.AuthStorage is AuthStorage
-    assert flask_ms_entra_auth.MemoryStorage is MemoryStorage
-    assert flask_ms_entra_auth.MicrosoftEntraAuth is MicrosoftEntraAuth
-    assert flask_ms_entra_auth.ConfigurationError is ConfigurationError
-    assert flask_ms_entra_auth.MicrosoftEntraAuthError is MicrosoftEntraAuthError
-    assert flask_ms_entra_auth.StorageError is StorageError
-    assert set(flask_ms_entra_auth.__all__) == {
-        "AuthStorage",
-        "ConfigurationError",
-        "MemoryStorage",
-        "MicrosoftEntraAuth",
-        "MicrosoftEntraAuthError",
-        "StorageError",
-        "__version__",
+    expected = {
+        "AuthStorage": AuthStorage,
+        "AuthenticationError": AuthenticationError,
+        "AuthenticationRequired": AuthenticationRequired,
+        "ConfigurationError": ConfigurationError,
+        "ConsentRequired": ConsentRequired,
+        "Identity": Identity,
+        "IdentityValidationError": IdentityValidationError,
+        "MemoryStorage": MemoryStorage,
+        "MicrosoftEntraAuth": MicrosoftEntraAuth,
+        "MicrosoftEntraAuthError": MicrosoftEntraAuthError,
+        "ProviderUnavailableError": ProviderUnavailableError,
+        "StorageError": StorageError,
+        "TokenAcquisitionError": TokenAcquisitionError,
+        "current_identity": current_identity,
     }
+
+    for name, value in expected.items():
+        assert getattr(flask_ms_entra_auth, name) is value
+    assert set(flask_ms_entra_auth.__all__) == {*expected, "__version__"}
 
 
 def test_public_errors_inherit_from_public_base_error() -> None:
-    assert issubclass(ConfigurationError, MicrosoftEntraAuthError)
-    assert issubclass(StorageError, MicrosoftEntraAuthError)
+    for error in (
+        AuthenticationError,
+        ConfigurationError,
+        ProviderUnavailableError,
+        StorageError,
+        TokenAcquisitionError,
+    ):
+        assert issubclass(error, MicrosoftEntraAuthError)
+    for error in (AuthenticationRequired, ConsentRequired, IdentityValidationError):
+        assert issubclass(error, AuthenticationError)
+
+
+def test_token_acquisition_error_exposes_only_sanitized_metadata_fields() -> None:
+    error = TokenAcquisitionError(
+        "safe message",
+        code="invalid_grant",
+        correlation_id="abc-123",
+    )
+
+    assert str(error) == "safe message"
+    assert error.code == "invalid_grant"
+    assert error.correlation_id == "abc-123"
 
 
 def test_package_version_is_available_from_one_source() -> None:

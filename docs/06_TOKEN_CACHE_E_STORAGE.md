@@ -1,84 +1,58 @@
 # Token cache e storage
 
-## Estado atual: ETAPA 02
-
-O contrato de storage, o backend em memória, namespace, TTL e erros estão implementados. Token cache MSAL, fluxo, identidade e dados reais de autenticação ainda não existem.
-
-## Contrato público
+## Contrato de storage
 
 ```python
-from typing import Protocol
-
 class AuthStorage(Protocol):
     def load(self, key: str) -> bytes | None: ...
     def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
     def delete(self, key: str) -> None: ...
 ```
 
-O contrato é byte-oriented para não acoplar o núcleo a Redis, SQLAlchemy, Flask-Session ou formatos de serialização específicos.
+`MemoryStorage` é thread-safe e adequado somente para desenvolvimento e testes.
 
-## Implementação em memória
+## Token cache implementado
 
-`MemoryStorage` fornece:
+A extensão usa exclusivamente `msal.SerializableTokenCache`.
 
-- Armazenamento em processo;
-- Lock para operações atômicas;
-- TTL baseado em relógio monotônico;
-- Remoção preguiçosa em `load()`;
-- Limpeza explícita por `purge_expired()`;
-- `delete()` idempotente;
-- Política last-write-wins.
+- Um cache é carregado por `home_account_id`;
+- O identificador não aparece na chave: é transformado por SHA-256;
+- A chave lógica é `token-cache:<digest>` dentro do namespace da aplicação;
+- Bytes são decodificados em UTF-8 e entregues a `deserialize()`;
+- `serialize()` é chamado somente quando `has_state_changed` é verdadeiro;
+- O cache é salvo com `MS_ENTRA_TOKEN_CACHE_TTL`;
+- Conteúdo inválido gera `StorageError` sem copiar o cache para a mensagem;
+- Refresh tokens nunca são lidos ou modificados diretamente.
 
-Ele é destinado somente a desenvolvimento e testes. Dados são perdidos ao encerrar o processo e não são compartilhados entre workers.
-
-## Namespace
-
-A aplicação trabalha com chaves lógicas. Antes de delegar ao backend, a extensão aplica:
+## Isolamento
 
 ```text
-msentra:<namespace>:<chave>
+backend compartilhado
+└── msentra:<namespace-aplicacao>:
+    └── token-cache:<sha256-home-account-id>
 ```
 
-`MS_ENTRA_SESSION_NAMESPACE` pode definir o namespace explicitamente. Sem configuração, um valor determinístico é derivado do nome da aplicação, client ID e tenant ID.
-
-Chaves não devem conter email, token, claim, client secret ou identificador previsível de usuário. Identificadores de sessão serão definidos em etapa posterior.
+Aplicações que compartilham backend devem possuir namespace exclusivo e estável (contas diferentes não compartilham cache).
 
 ## TTL
 
-| Dado futuro | Política planejada |
-| ----------: | :----------------- |
-|       Fluxo | Curto              |
-|  Identidade | Duração da sessão  |
-|  Cache MSAL | Alinhado à sessão  |
+|                   Dado | Política atual                             |
+| ---------------------: | :----------------------------------------- |
+|            Token cache | `MS_ENTRA_TOKEN_CACHE_TTL`, padrão 28800 s |
+|         Fluxo de login | Planejado, TTL curto                       |
+| Identidade persistente | Planejada, alinhada à sessão               |
 
-Na API atual, TTL deve ser inteiro positivo em segundos ou `None`. Zero, negativos, booleanos e outros tipos são rejeitados com `StorageError`.
+O TTL do cache é experimental e poderá ser harmonizado com a política de sessão na ETAPA 05.
 
 ## Concorrência
 
-`MemoryStorage` protege operações com `RLock`. A última escrita concluída para uma chave prevalece. Locks distribuídos, CAS, versionamento e concorrência otimista permanecem fora do contrato e exigirão ADR próprio.
-
-## Erros
-
-Falhas de validação e operação usam `StorageError`. Adaptadores de backend:
-
-- Preservam uma `StorageError` já segura;
-- Encapsulam outras exceções com `raise ... from ...`;
-- Não incluem chave, valor ou mensagem original na mensagem pública.
-
-## Serialização futura
-
-A serialização e desserialização do cache de autenticação deverão usar exclusivamente `msal.SerializableTokenCache`. Refresh tokens não serão manipulados diretamente pela aplicação ou pelo storage.
+`MemoryStorage` usa lock e last-write-wins. O contrato ainda não oferece CAS, versão ou detecção de conflito. Backends distribuídos devem documentar sua política e a ETAPA 08 revisará concorrência distribuída.
 
 ## Produção
 
-Backends de produção devem considerar:
-
-- TLS para serviços externos;
-- TTL compatível com sessão e fluxo;
-- Menor privilégio;
-- Proteção em repouso;
-- Múltiplos workers e processos;
-- Disponibilidade e timeouts;
-- Nenhum token, chave de sessão ou cache em logs.
-
-Redis e outros backends de produção não foram implementados nesta etapa.
+- Use backend server-side persistente;
+- Use TLS quando aplicável;
+- Aplique menor privilégio e proteção em repouso;
+- Defina TTL coerente com a sessão;
+- Não registre chave, valor, cache, token ou causa bruta de exceções;
+- Não use `MemoryStorage` em múltiplos workers.

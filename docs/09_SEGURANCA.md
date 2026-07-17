@@ -2,53 +2,33 @@
 
 ## Ativos
 
-Client secret, configuração, redirect URIs, namespace, chaves internas, sessão, fluxo, token cache, tokens, claims e logs.
+Client secret, fluxo, sessão, identidade, claims, token cache, access token, refresh token gerenciado pelo MSAL, redirect URI e logs.
 
-## Controles implementados até a ETAPA 02
+## Controles implementados
 
-| Ameaça                                          | Controle atual                                |
-| ----------------------------------------------- | --------------------------------------------- |
-| Configuração ausente ou placeholder             | Validação fail-fast                           |
-| Client secret em erro ou representação          | Mensagens sem valor e campo fora do `repr`    |
-| Redirect externo sem TLS                        | HTTP permitido somente em loopback            |
-| Authority insegura ou tenant divergente         | HTTPS e correspondência obrigatória           |
-| Vazamento entre aplicações                      | Estado, configuração e namespace separados    |
-| Colisão de chaves em backend compartilhado      | Prefixo `msentra:<namespace>:`                |
-| Valor não binário ou TTL inválido               | Validação antes da operação                   |
-| Expiração baseada em relógio civil              | Relógio monotônico no backend em memória      |
-| Condição de corrida local                       | Operações protegidas por `RLock`              |
-| Erro externo expondo conteúdo                   | `StorageError` sanitizado com causa encadeada |
-| Uso acidental do backend em memória em produção | Limitação explícita na API e documentação     |
-
-## Ameaças e controles planejados
-
-| Ameaça            | Controle futuro                        |
-| ----------------- | -------------------------------------- |
-| Login CSRF        | Fluxo MSAL persistido e state validado |
-| Callback injetado | Correspondência com sessão             |
-| Session fixation  | Integração para regeneração da sessão  |
-| Open redirect     | Validação do destino pós-login         |
-| Token em cookie   | Storage server-side                    |
-| Token em log      | Redação e proibição                    |
-| Token expirado    | Aquisição silenciosa                   |
-| Replay            | Consumo do fluxo                       |
-| Forced logout     | POST e CSRF pela aplicação             |
+| Ameaça                              | Controle atual                                |
+| ----------------------------------- | --------------------------------------------- |
+| Configuração insegura               | Validação fail-fast e objetos congelados      |
+| Tenant inesperado                   | Comparação de claim `tid` com tenant esperado |
+| Token dentro da identidade          | Claims de credencial rejeitadas               |
+| Mutação de claims                   | Congelamento recursivo                        |
+| PII em representação                | `Identity.__repr__` sanitizado                |
+| Cache em chave identificável        | SHA-256 do `home_account_id`                  |
+| Manipulação manual de refresh token | Uso exclusivo de `SerializableTokenCache`     |
+| Cache inválido                      | `StorageError` seguro                         |
+| PII logging do MSAL                 | `enable_pii_log=False`                        |
+| Erro bruto do provedor              | Sanitização de código/correlation ID          |
+| Token no cliente                    | Aquisição retorna somente ao código servidor  |
+| Estado global de usuário            | Contexto Flask request-local                  |
 
 ## Responsabilidade compartilhada
 
-A aplicação e o operador continuam responsáveis por HTTPS, `SECRET_KEY`, cookies, CSRF, backend de produção, TLS, timeouts, credenciais de storage, proxy, headers, rate limit, autorização e carregamento seguro dos secrets.
+A aplicação continua responsável por HTTPS, `SECRET_KEY`, cookies, CSRF, storage de produção, proxy, headers, rate limit, autorização, proteção de secrets e por não devolver access tokens ao navegador.
 
-## Validação atual
+## Ainda não implementado
 
-- Configuração, tenant, authority, redirect e scopes;
-- Namespace, chave, bytes e TTL;
-- Isolamento entre aplicações;
-- Expiração e concorrência local;
-- Ausência de segredo, chave e valor em erros;
-- Análise estática e auditoria de dependências.
+State, nonce, callback, replay protection, open redirect, regeneração de sessão e logout serão tratados nas etapas de fluxo e hardening.
 
-## Validação futura
+## Auditoria
 
-State divergente, callback sem fluxo, replay, next URL, cache MSAL ausente ou corrompido e logs sem tokens pertencem às etapas seguintes.
-
-A extensão não garante conformidade regulatória nem substitui revisão de segurança.
+A validação inclui testes de ausência de credenciais, imutabilidade, tenant, isolamento, cache, sanitização, Bandit, pip-audit e revisão de artefatos. Isso não substitui revisão de segurança do fluxo completo.

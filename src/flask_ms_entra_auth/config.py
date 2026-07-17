@@ -11,6 +11,7 @@ from .errors import ConfigurationError
 
 _DEFAULT_AUTHORITY_HOST: Final = "login.microsoftonline.com"
 _DEFAULT_SCOPES: Final = ("User.Read",)
+_DEFAULT_TOKEN_CACHE_TTL: Final = 28_800
 _RESERVED_TENANTS: Final = frozenset({"common", "consumers", "organizations"})
 _PLACEHOLDERS: Final = frozenset(
     {
@@ -30,7 +31,7 @@ _PLACEHOLDERS: Final = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class MicrosoftEntraAuthConfig:
-    # Valida e imuta a configuração de uma aplicação Flask
+    # Validada e imutável configuração de autenticação do Microsoft Entra, pertencente a uma aplicação Flask
 
     client_id: str
     client_secret: str = field(repr=False)
@@ -39,11 +40,12 @@ class MicrosoftEntraAuthConfig:
     authority: str
     scopes: tuple[str, ...]
     session_namespace: str
+    token_cache_ttl: int
 
 
 @dataclass(frozen=True, slots=True)
 class ConfigOverrides:
-    # Imuta e valida os valores de nível de construtor com precedência sobre ``app.config``
+    # Imutabilidade de valores no nível do construtor com precedência sobre ``app.config``
 
     client_id: str | None = None
     client_secret: str | None = None
@@ -52,6 +54,7 @@ class ConfigOverrides:
     authority: str | None = None
     scopes: Iterable[str] | None = None
     session_namespace: str | None = None
+    token_cache_ttl: int | None = None
 
 
 def resolve_config(
@@ -60,6 +63,7 @@ def resolve_config(
     *,
     app_name: str,
 ) -> MicrosoftEntraAuthConfig:
+    # Resolve constructor overrides, Flask configuration, and safe defaults
     client_id = _required_text(
         "MS_ENTRA_CLIENT_ID",
         _pick(overrides.client_id, app_config, "MS_ENTRA_CLIENT_ID"),
@@ -100,6 +104,16 @@ def resolve_config(
         )
     )
 
+    token_cache_ttl_value = _pick(
+        overrides.token_cache_ttl,
+        app_config,
+        "MS_ENTRA_TOKEN_CACHE_TTL",
+    )
+    token_cache_ttl = _validate_positive_integer(
+        "MS_ENTRA_TOKEN_CACHE_TTL",
+        (_DEFAULT_TOKEN_CACHE_TTL if token_cache_ttl_value is None else token_cache_ttl_value),
+    )
+
     return MicrosoftEntraAuthConfig(
         client_id=client_id,
         client_secret=client_secret,
@@ -108,6 +122,7 @@ def resolve_config(
         authority=authority,
         scopes=scopes,
         session_namespace=session_namespace,
+        token_cache_ttl=token_cache_ttl,
     )
 
 
@@ -252,3 +267,9 @@ def _validate_session_namespace(namespace: str) -> str:
             "MS_ENTRA_SESSION_NAMESPACE must contain only letters, numbers, '.', '_' or '-'"
         )
     return namespace
+
+
+def _validate_positive_integer(key: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigurationError(f"{key} must be a positive integer")
+    return value

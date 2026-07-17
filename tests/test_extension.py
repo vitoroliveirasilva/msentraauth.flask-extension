@@ -252,3 +252,39 @@ def test_constructor_rejects_invalid_storage_backend() -> None:
 
     with pytest.raises(TypeError, match="AuthStorage"):
         MicrosoftEntraAuth(storage=invalid_storage)
+
+
+def test_init_app_registers_msal_service_without_calling_factory() -> None:
+    calls: list[object] = []
+
+    def factory(config: object, cache: object) -> object:
+        calls.append((config, cache))
+        raise AssertionError("factory must remain lazy")
+
+    app = create_app("lazy-msal")
+    extension = MicrosoftEntraAuth(msal_client_factory=factory)  # type: ignore[arg-type]
+
+    extension.init_app(app)
+
+    state = app.extensions["ms_entra_auth"]
+    assert state.msal.config is state.config
+    assert state.msal.storage is state.storage
+    assert calls == []
+
+
+def test_duplicate_initialization_preserves_msal_service() -> None:
+    app = create_app("msal-idempotent")
+    extension = MicrosoftEntraAuth()
+    extension.init_app(app)
+    original = app.extensions["ms_entra_auth"].msal
+
+    extension.init_app(app)
+
+    assert app.extensions["ms_entra_auth"].msal is original
+
+
+def test_constructor_rejects_invalid_msal_client_factory() -> None:
+    invalid_factory: Any = object()
+
+    with pytest.raises(TypeError, match="msal_client_factory"):
+        MicrosoftEntraAuth(msal_client_factory=invalid_factory)

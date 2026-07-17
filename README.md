@@ -1,23 +1,23 @@
 # MS Entra Auth para Flask
 
-Extensão Flask reutilizável, em desenvolvimento, para integrar aplicações web ao Microsoft Entra ID por meio do MSAL. O projeto prioriza application factory, estado isolado por aplicação, API pública tipada e comportamento observável.
+Extensão Flask reutilizável, em desenvolvimento, para integrar aplicações web ao Microsoft Entra ID por meio do MSAL. O projeto prioriza application factory, estado isolado por aplicação, identidade imutável, token cache server-side e API pública tipada.
 
 ## Estado atual
 
-A **ETAPA 02** está implementada. A versão de desenvolvimento `0.3.0` fornece fundação instalável, configuração validada e contrato inicial de storage com TTL e isolamento por namespace.
+As **ETAPAS 03 e 04** estão implementadas em conjunto. A versão de desenvolvimento `0.4.0` fornece fundação instalável, configuração validada, storage substituível, identidade autenticada imutável, contexto Flask e núcleo MSAL para aquisição silenciosa.
 
-| Componente                           |
-| ------------------------------------ |
-| Empacotamento Python                 |
-| `MicrosoftEntraAuth` e `init_app`    |
-| Configuração fail-fast               |
-| Contrato `AuthStorage`               |
-| `MemoryStorage` para desenvolvimento |
-| Namespace e TTL                      |
-| Testes, qualidade e CI               |
-| Autenticação Microsoft Entra ID      |
-| Fluxos MSAL                          |
-| Publicação no PyPI                   |
+|                                     Componente |
+| ---------------------------------------------: |
+|                  Empacotamento, qualidade e CI |
+|                         Configuração fail-fast |
+|          Storage substituível, namespace e TTL |
+|                `Identity` e `current_identity` |
+|                              Cliente MSAL lazy |
+| `SerializableTokenCache` persistente por conta |
+|                  Aquisição silenciosa de token |
+|      Login, callback e Authorization Code Flow |
+|                      Rotas, decorators e hooks |
+|                             Publicação no PyPI |
 
 O status detalhado está em [`docs/implementation/status.md`](docs/implementation/status.md).
 
@@ -41,7 +41,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-## Uso disponível na ETAPA 02
+## Application factory
 
 ```python
 from flask import Flask
@@ -59,63 +59,93 @@ def create_app() -> Flask:
         MS_ENTRA_REDIRECT_URI="https://app.example.com/auth/callback",
         MS_ENTRA_SCOPES=["User.Read"],
         MS_ENTRA_SESSION_NAMESPACE="minha-aplicacao",
+        MS_ENTRA_TOKEN_CACHE_TTL=28_800,
     )
     entra_auth.init_app(app)
     return app
 ```
 
-Sem backend explícito, cada aplicação recebe um `MemoryStorage` próprio. Esse backend perde todos os dados ao encerrar o processo e não é adequado para produção.
+`init_app()` valida a configuração, registra storage e serviço MSAL em `app.extensions["ms_entra_auth"]`, mas não cria cliente MSAL, não acessa rede e não registra rotas.
 
-Um backend próprio pode implementar o contrato público:
+## Identidade
+
+```python
+from flask_ms_entra_auth import Identity, current_identity
+
+identity = Identity.from_claims(
+    {
+        "oid": "object-id",
+        "tid": "tenant-id",
+        "sub": "subject",
+        "name": "Nome de apresentação",
+        "preferred_username": "usuario@example.com",
+    },
+    home_account_id="home-account-id",
+    expected_tenant_id="tenant-id",
+)
+```
+
+`Identity` é congelada, profundamente imutável, não contém access token e expõe `stable_id` como `(tenant_id, object_id)`. Email e username são apenas apresentação, nunca chave de autorização.
+
+`current_identity` é um proxy de contexto Flask. Fora de uma requisição ativa, sem extensão inicializada ou sem identidade autenticada, falha explicitamente. A vinculação automática da identidade ocorrerá no futuro callback da ETAPA 05.
+
+## Aquisição silenciosa
+
+```python
+from flask_ms_entra_auth import ConsentRequired, current_identity
+
+@app.get("/token-interno")
+def token_interno() -> dict[str, str]:
+    # Esta rota pressupõe que uma etapa futura já vinculou current_identity
+    token = entra_auth.acquire_token(["User.Read"])
+    return {"account": current_identity.home_account_id, "status": "token obtido"}
+```
+
+O token é retornado somente ao código servidor. Ele não entra em `Identity`, sessão client-side, logs ou respostas por padrão. A operação:
+
+1. Localiza a conta MSAL pelo `home_account_id` da identidade;
+2. Carrega um `SerializableTokenCache` persistido por conta;
+3. Executa aquisição silenciosa;
+4. Salva o cache apenas quando alterado;
+5. Usa chave de storage derivada por SHA-256, sem expor o identificador da conta.
+
+Se interação for necessária, a extensão gera `ConsentRequired`. Erros do provedor e resultados inválidos são sanitizados.
+
+## Storage
+
+Sem backend explícito, cada aplicação recebe `MemoryStorage`, adequado somente para desenvolvimento e testes. Um backend próprio implementa `AuthStorage`:
 
 ```python
 from flask_ms_entra_auth import AuthStorage, MicrosoftEntraAuth
 
 
 class MeuStorage:
-    def load(self, key: str) -> bytes | None:
-        ...
-
-    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None:
-        ...
-
-    def delete(self, key: str) -> None:
-        ...
+    def load(self, key: str) -> bytes | None: ...
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
+    def delete(self, key: str) -> None: ...
 
 
 storage: AuthStorage = MeuStorage()
 entra_auth = MicrosoftEntraAuth(storage=storage)
 ```
 
-A extensão adiciona automaticamente o namespace antes de delegar as chaves ao backend. Backends compartilhados por aplicações distintas devem usar `MS_ENTRA_SESSION_NAMESPACE` exclusivo e estável.
+A extensão adiciona namespace por aplicação. O cache MSAL é armazenado exclusivamente como bytes serializados pelo `SerializableTokenCache`; refresh tokens nunca são manipulados diretamente.
 
-`init_app()` atualmente:
-
-- Valida a aplicação e a configuração;
-- Registra configuração imutável e estado isolado em `app.extensions["ms_entra_auth"]`;
-- Registra uma visão namespaced do backend de storage;
-- Usa `MemoryStorage` por aplicação quando nenhum backend é fornecido;
-- Suporta a mesma instância em múltiplas aplicações;
-- Não armazena a aplicação em `self.app`;
-- Não realiza chamadas de rede, não inicializa MSAL e não registra rotas.
-
-Falhas previsíveis usam exceções públicas:
+## Erros públicos
 
 ```python
-from flask_ms_entra_auth import ConfigurationError, StorageError
+from flask_ms_entra_auth import (
+    AuthenticationRequired,
+    ConfigurationError,
+    ConsentRequired,
+    IdentityValidationError,
+    ProviderUnavailableError,
+    StorageError,
+    TokenAcquisitionError,
+)
 ```
 
-## Garantias de storage
-
-- Valores são bytes;
-- Chaves vazias, excessivas ou com byte nulo são rejeitadas;
-- TTL deve ser inteiro positivo ou `None`;
-- Valores expirados retornam `None` e são removidos;
-- `delete()` é idempotente;
-- `MemoryStorage` é protegido por lock;
-- Escrita usa estratégia last-write-wins;
-- Falhas de backends externos são encapsuladas em `StorageError` com causa preservada;
-- Mensagens de erro não repetem chave nem conteúdo.
+Mensagens públicas não repetem client secret, token, cache, claims completas, chave de storage nem erro bruto do provedor.
 
 ## Validação local
 
@@ -139,21 +169,19 @@ pytest tests/test_distribution.py --no-cov
 Remove-Item Env:DIST_DIR
 ```
 
-## Escopo futuro
+## Limites atuais
 
-Identidade autenticada, cliente MSAL, `SerializableTokenCache`, Authorization Code Flow, hooks, decorators e rotas permanecem planejados. O storage desta etapa ainda não recebe tokens ou dados de autenticação reais.
-
-O [msentraauth.flask-template](https://github.com/vitoroliveirasilva/msentraauth.flask-template) será futuramente a aplicação consumidora e de referência. Ele não foi alterado nesta etapa.
+Ainda não existem login, callback, state, nonce, replay protection, rotas, logout, decorators, hooks ou integração com Microsoft Graph. Nenhuma aplicação consegue autenticar um usuário apenas com a versão `0.4.0`; a identidade e o núcleo MSAL estão preparados para serem conectados pelo fluxo web da ETAPA 05.
 
 ## Princípios
 
 1. Segurança antes de conveniência;
 2. Pouca mágica e comportamento observável;
 3. Application factory como requisito;
-4. Estado isolado por aplicação e sessão;
-5. Dependências obrigatórias mínimas;
-6. Tokens nunca expostos ao cliente por padrão;
-7. API pública pequena, tipada e previsível.
+4. Estado isolado por aplicação, requisição e conta;
+5. Tokens apenas no servidor;
+6. API pública pequena, tipada e previsível;
+7. MSAL como única autoridade sobre refresh tokens e cache de tokens.
 
 ## Identidade do pacote
 

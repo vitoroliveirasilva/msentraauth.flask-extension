@@ -1,6 +1,6 @@
 # Plano mestre
 
-## Etapa 00: fundação
+## Etapa 00: fundação (Concluída)
 
 Documentação coerente, estrutura `src`, empacotamento, qualidade, testes, auditoria, build e CI.
 
@@ -12,17 +12,17 @@ Validação fail-fast, precedência, configuração imutável, authority, redire
 
 Protocol, backend em memória, namespace, TTL, `StorageError`, concorrência local, last-write-wins e suíte contratual.
 
-## Etapa 03: identidade
+## Etapa 03: identidade (Concluída)
 
-Modelo imutável, claims, tenant, contexto e `current_identity`.
+Modelo imutável, claims, tenant, contexto request-local e `current_identity`.
 
-## Etapa 04: MSAL
+## Etapa 04: MSAL (Concluída)
 
-Construção do client, `SerializableTokenCache`, seleção de conta e aquisição silenciosa.
+Cliente confidencial lazy, `SerializableTokenCache`, seleção de conta, aquisição silenciosa, sanitização e persistência por conta.
 
 ## Etapa 05: fluxo web
 
-Login, callback, state, cancelamento, replay e next URL.
+Login, callback, state, nonce, cancelamento, replay, next URL, criação/restauração da identidade e persistência do fluxo.
 
 ## Etapa 06: rotas e decorator
 

@@ -1,6 +1,6 @@
 # Arquitetura
 
-## Estado atual: ETAPA 02
+## Estado atual: ETAPAS 03 e 04
 
 ```text
 Aplicação Flask
@@ -8,30 +8,50 @@ Aplicação Flask
       v
 MicrosoftEntraAuth.init_app(app)
       |
-      +-- resolve e valida configuração
-      +-- seleciona backend de storage
-      +-- aplica namespace da aplicação
+      +-- configuração validada e imutável
+      +-- storage namespaced por aplicação
+      +-- MsalService lazy, sem rede no startup
       |
       v
 app.extensions["ms_entra_auth"]
       |
-      +-- configuração imutável
-      +-- storage namespaced
-      +-- estado mutável exclusivo da aplicação
+      +-- config
+      +-- storage
+      +-- msal service
+
+Requisição Flask
+      |
+      +-- Identity imutável em contexto local
+      +-- current_identity (LocalProxy)
+      |
+      v
+MicrosoftEntraAuth.acquire_token()
+      |
+      +-- home_account_id da identidade
+      +-- SerializableTokenCache por conta
+      +-- ConfidentialClientApplication sob demanda
+      +-- acquire_token_silent_with_error
+      +-- persistência apenas quando cache muda
 ```
 
-A extensão ainda não cria cliente MSAL, não acessa rede, não registra blueprint e não executa autenticação.
-
-## Pacote implementado
+## Pacote atual
 
 ```text
 src/flask_ms_entra_auth/
 ├── __init__.py
 ├── _version.py
 ├── config.py
+├── context.py
 ├── errors.py
 ├── extension.py
+├── identity.py
 ├── py.typed
+├── auth/
+│   ├── __init__.py
+│   ├── client.py
+│   ├── protocols.py
+│   ├── service.py
+│   └── token_cache.py
 └── storage/
     ├── __init__.py
     ├── base.py
@@ -40,62 +60,47 @@ src/flask_ms_entra_auth/
     └── validation.py
 ```
 
-### Responsabilidades atuais
+## Responsabilidades
 
-- `config.py`: precedência, normalização e configuração de namespace;
-- `errors.py`: exceções públicas previsíveis;
-- `extension.py`: integração Flask, seleção do backend e estado por aplicação;
-- `storage/base.py`: contrato `AuthStorage`;
-- `storage/memory.py`: backend em memória com TTL e lock;
-- `storage/namespaced.py`: isolamento de chaves antes da delegação;
-- `storage/validation.py`: validação segura de chave, valor, TTL e namespace.
+### `MicrosoftEntraAuth`
 
-## Storage por aplicação
+Resolve dependências por aplicação, registra estado, suporta application factory e múltiplas apps, não guarda `app` e expõe aquisição silenciosa server-side.
 
-Cada estado registrado contém uma visão namespaced do backend. A aplicação usa apenas chaves lógicas, enquanto o adaptador delega ao backend chaves no formato:
+### Configuração
 
-```text
-msentra:<namespace>:<chave-logica>
-```
+É resolvida uma vez por aplicação, congelada e protegida contra exposição do client secret. Inclui TTL do token cache.
 
-Quando nenhum backend é fornecido, cada aplicação recebe um `MemoryStorage` independente. Quando um backend é compartilhado, o namespace impede colisões entre aplicações configuradas com identificadores distintos.
+### Storage
 
-O namespace pode ser definido por `MS_ENTRA_SESSION_NAMESPACE` ou argumento do construtor. Na ausência de valor explícito, ele é derivado de forma determinística a partir do nome da aplicação, client ID e tenant ID, sem incluir client secret.
+Persiste bytes por contrato substituível. O adaptador de namespace impede colisão entre aplicações. `MemoryStorage` é somente para desenvolvimento.
 
-## Concorrência e TTL
+### Identidade
 
-`MemoryStorage` usa `RLock` para tornar operações individuais atômicas. A política é last-write-wins: a última escrita concluída para uma chave substitui a anterior.
+`Identity` representa claims validadas, sem credenciais. A aplicação continua responsável por usuário local e autorização. Claims são profundamente imutáveis e `stable_id` usa tenant + object ID.
 
-TTL é calculado com relógio monotônico. Valores expirados são removidos durante `load()` ou por `purge_expired()`.
+### Contexto
 
-## Estado por aplicação
+`current_identity` é request-local e falha explicitamente sem contexto, extensão ou autenticação. A vinculação e restauração automáticas pertencem ao fluxo web futuro.
 
-A mesma instância de `MicrosoftEntraAuth` pode inicializar várias aplicações. A extensão não guarda `app` em atributo permanente. Inicialização duplicada da mesma instância preserva configuração, storage e estado originais.
+### Serviço MSAL
 
-## Arquitetura planejada
+`MsalService` é application-scoped, mas não contém estado de usuário. Recebe configuração, storage e fábrica de cliente. Cada operação carrega cache específico da conta, cria cliente sob demanda e persiste alterações.
 
-```text
-MicrosoftEntraAuth
-      |
-      +-- configuração validada
-      +-- storage substituível
-      +-- identidade atual
-      +-- serviço de autenticação
-      +-- rotas opcionais
-      +-- token cache
-      +-- hooks
-      |
-      v
-MSAL Python
-      |
-      v
-Microsoft Entra ID
-```
+### Token cache
 
-## Dependências
+A serialização usa exclusivamente `SerializableTokenCache`. O cache é separado por `home_account_id`, mas a chave persistida usa SHA-256 para não revelar o identificador.
 
-O núcleo declara Flask `3.1.x` e MSAL `1.x`. Nenhum módulo atual importa ou inicializa o MSAL. Redis, Flask-Login, SQLAlchemy e clientes Graph permanecem opcionais ou externos ao núcleo.
+## Estado por camada
 
-## Fronteiras
+- Por aplicação: configuração, storage namespaced e serviço MSAL em `app.extensions`;
+- Por requisição: identidade em contexto Flask;
+- Por conta: token cache serializado no backend;
+- Proibido: `self.app`, usuário global, token global, refresh token manipulado manualmente ou token em `Identity`.
 
-O storage desta etapa é byte-oriented e não conhece tokens, identidade, sessão Flask ou formato MSAL. Serialização de token cache será responsabilidade da etapa MSAL e deverá usar `SerializableTokenCache`.
+## Rede
+
+`init_app()` não cria `ConfidentialClientApplication` nem acessa rede. A construção ocorre somente quando uma operação MSAL é solicitada. Testes injetam fábrica sem rede.
+
+## Fronteiras futuras
+
+Login, callback, state, nonce, replay protection e restauração da identidade pertencem à ETAPA 05. Blueprint, decorator e logout pertencem à ETAPA 06. Hooks permanecem na ETAPA 07.

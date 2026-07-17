@@ -8,42 +8,32 @@ MicrosoftEntraAuthError
 ├── StorageError
 ├── AuthenticationError
 │   ├── AuthenticationRequired
-│   ├── InvalidCallbackError
 │   ├── IdentityValidationError
 │   └── ConsentRequired
 ├── TokenAcquisitionError
 └── ProviderUnavailableError
 ```
 
-## Garantias implementadas
+## Semântica
 
-- Configuração inválida gera `ConfigurationError` durante `init_app()`;
-- Chave, valor, TTL ou operação de storage inválida gera `StorageError`;
-- Falhas externas de storage preservam a causa original em `__cause__`;
-- Mensagens públicas não repetem client secret, chave, valor ou erro bruto do backend;
-- Client secret não aparece na representação da configuração;
-- Erros surgem antes de qualquer chamada de rede.
+- `AuthenticationRequired`: falta identidade ou conta MSAL correspondente;
+- `IdentityValidationError`: claims ou campos de identidade inválidos;
+- `ConsentRequired`: aquisição silenciosa não basta e interação será necessária;
+- `TokenAcquisitionError`: resultado MSAL inválido ou erro retornado pelo provedor;
+- `ProviderUnavailableError`: exceção inesperada ao construir ou usar cliente MSAL;
+- `StorageError`: falha de persistência, serialização ou cache corrompido.
 
-## Observabilidade atual
+`TokenAcquisitionError` pode expor `code` e `correlation_id` sanitizados. `error_description` e resposta bruta não são copiadas.
 
-Nenhum evento estruturado ou integração de logging foi implementado. A aplicação pode capturar `ConfigurationError` e `StorageError` no startup ou em operações próprias, sem registrar a causa bruta quando ela puder conter dados sensíveis.
+## Garantias
 
-## Eventos planejados
+- Client secret não aparece em representação;
+- `Identity.__repr__` não expõe PII ou claims;
+- Token, cache, chave e identificador de conta não aparecem em mensagens públicas;
+- Causas originais são preservadas apenas em `__cause__` para diagnóstico controlado;
+- `init_app()` falha antes de rede;
+- PII logging do MSAL permanece desativado.
 
-- `authentication_started`;
-- `authentication_succeeded`;
-- `authentication_cancelled`;
-- `authentication_rejected`;
-- `token_cache_hit`;
-- `token_cache_miss`;
-- `token_refreshed`;
-- `logout_completed`;
-- `storage_failure`.
+## Observabilidade futura
 
-## Permitido em logs futuros
-
-Timestamp, nível, evento, request ID, endpoint, código normalizado, correlation ID, duração e versão.
-
-## Proibido em logs
-
-Client secret, Authorization, cookie, auth code, tokens, cache, claims completas, chaves internas, identificadores de sessão e query string completa do callback.
+Eventos estruturados ainda não foram implementados. Permanecem planejados: autenticação iniciada, sucesso, cancelamento, rejeição, cache hit/miss, refresh, logout e falha de storage.

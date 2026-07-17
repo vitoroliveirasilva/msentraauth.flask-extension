@@ -1,107 +1,127 @@
 # API pública
 
-## Disponível na ETAPA 02
+## Disponível na versão `0.4.0`
 
 ```python
 from flask_ms_entra_auth import (
     AuthStorage,
+    AuthenticationError,
+    AuthenticationRequired,
     ConfigurationError,
+    ConsentRequired,
+    Identity,
+    IdentityValidationError,
     MemoryStorage,
     MicrosoftEntraAuth,
     MicrosoftEntraAuthError,
+    ProviderUnavailableError,
     StorageError,
+    TokenAcquisitionError,
+    current_identity,
     __version__,
 )
 ```
 
 ## `MicrosoftEntraAuth`
 
-O padrão recomendado permanece desacoplado da aplicação:
-
-```python
-extension = MicrosoftEntraAuth()
-```
-
-A construção aceita configuração imutável e backend opcional:
-
 ```python
 extension = MicrosoftEntraAuth(
-    client_id="client-id",
-    client_secret="secret-provider-value",
-    tenant_id="tenant-id",
-    redirect_uri="https://app.example.com/auth/callback",
-    scopes=["User.Read"],
-    session_namespace="app-principal",
-    storage=meu_storage,
+    client_id=None,
+    client_secret=None,
+    tenant_id=None,
+    redirect_uri=None,
+    authority=None,
+    scopes=None,
+    session_namespace=None,
+    token_cache_ttl=None,
+    storage=None,
+    msal_client_factory=None,
 )
 ```
+
+`msal_client_factory` é uma seam avançada para testes e integrações controladas. A fábrica recebe configuração resolvida e `SerializableTokenCache`. O cliente padrão é `ConfidentialClientApplication` com PII logging desligado.
 
 ### `init_app(app)`
 
 - Valida aplicação e configuração;
 - Registra estado em `app.extensions["ms_entra_auth"]`;
-- Seleciona `MemoryStorage` quando não há backend explícito;
-- Aplica namespace antes de qualquer chamada ao backend;
-- Suporta múltiplas aplicações com a mesma instância;
-- Não armazena a aplicação em `self.app`;
-- Não acessa rede, não inicializa MSAL e não registra rotas.
+- Seleciona storage e aplica namespace;
+- Registra `MsalService` sem construir cliente MSAL;
+- Suporta a mesma instância em várias apps;
+- É idempotente para a mesma instância na mesma app;
+- Não armazena `app`, não acessa rede e não registra rotas.
 
-## `AuthStorage`
+### `acquire_token(scopes=None, *, force_refresh=False) -> str`
 
-Contrato estrutural e verificável em runtime:
+Adquire silenciosamente um access token delegado para `current_identity`.
 
-```python
-class AuthStorage(Protocol):
-    def load(self, key: str) -> bytes | None: ...
-    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
-    def delete(self, key: str) -> None: ...
-```
+- Exige contexto de requisição e identidade autenticada;
+- Usa scopes configurados quando `scopes` é `None`;
+- Localiza conta pelo `home_account_id`;
+- Carrega e persiste cache MSAL por conta;
+- Retorna token somente ao código servidor;
+- Não adiciona token à identidade nem ao cookie Flask.
 
-### Garantias esperadas
+Pode gerar `AuthenticationRequired`, `ConsentRequired`, `StorageError`, `TokenAcquisitionError` ou `ProviderUnavailableError`.
 
-- Ausência ou expiração retorna `None`;
-- Valores são bytes;
-- TTL é inteiro positivo ou `None`;
-- `delete()` é idempotente;
-- Falhas de infraestrutura são representadas por `StorageError`.
-
-## `MemoryStorage`
-
-Backend público para desenvolvimento e testes:
+## `Identity`
 
 ```python
-storage = MemoryStorage()
-storage.save("flow", b"payload", ttl=300)
-assert storage.load("flow") == b"payload"
-storage.delete("flow")
+identity = Identity.from_claims(
+    claims,
+    home_account_id="...",
+    expected_tenant_id="...",
+)
 ```
 
-Também oferece `purge_expired() -> int`. Não é adequado para produção, múltiplos processos ou persistência após reinício.
+Campos:
+
+- `object_id: str`;
+- `tenant_id: str`;
+- `home_account_id: str`;
+- `subject: str | None`;
+- `display_name: str | None`;
+- `username: str | None`;
+- `claims: Mapping[str, object]` somente leitura;
+- `stable_id -> tuple[str, str]`.
+
+`Identity` é congelada, não expõe claims em `repr` e rejeita access token, refresh token, ID token bruto, client secret e token cache.
+
+## `current_identity`
+
+Proxy Flask para a identidade da requisição. Falha explicitamente:
+
+- Fora de request context;
+- Quando a extensão não está inicializada;
+- Quando não existe identidade autenticada.
+
+A API pública não oferece vinculação manual da identidade. Essa integração é interna e será acionada pelo callback futuro.
+
+## Storage
+
+`AuthStorage` e `MemoryStorage` mantêm o contrato da ETAPA 02. O cache MSAL usa o mesmo storage namespaced.
 
 ## Erros públicos
 
-### `MicrosoftEntraAuthError`
+```text
+MicrosoftEntraAuthError
+├── ConfigurationError
+├── StorageError
+├── AuthenticationError
+│   ├── AuthenticationRequired
+│   ├── IdentityValidationError
+│   └── ConsentRequired
+├── TokenAcquisitionError
+└── ProviderUnavailableError
+```
 
-Base para falhas previsíveis da extensão.
+`TokenAcquisitionError` pode expor `code` e `correlation_id` quando esses valores passam pela sanitização da extensão. Descrições brutas do provedor não são copiadas.
 
-### `ConfigurationError`
+## API ainda planejada
 
-Indica configuração ausente ou inválida.
-
-### `StorageError`
-
-Indica chave, valor, TTL, expiração ou operação de backend inválida. Quando uma falha externa é encapsulada, a causa original fica disponível em `__cause__`, sem ser copiada para a mensagem pública.
-
-## Versão
-
-A versão pública vem de `src/flask_ms_entra_auth/_version.py` e é usada dinamicamente pelo Hatchling.
-
-## API planejada, não implementada
-
-- Identidade e `current_identity`;
 - `register_routes`;
 - `begin_login` e `complete_login`;
-- Aquisição silenciosa de token;
-- Logout e decorators;
-- Hooks;
-- Serialização e uso real do token cache MSAL.
+- Callback e persistência de fluxo;
+- Logout;
+- `login_required`;
+- Hooks.

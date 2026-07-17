@@ -3,44 +3,55 @@
 ## Compatibilidade
 
 - Python mínimo: 3.11;
-- matriz de CI: Python 3.11, 3.12, 3.13 e 3.14;
+- Matriz de CI: Python 3.11, 3.12, 3.13 e 3.14;
 - Flask: série `3.1.x`;
-- MSAL: série `1.x`, com mínimo `1.37`.
+- MSAL: série `1.x`, mínimo `1.37`.
 
 ## Casos implementados
 
-### Fundação e configuração
+### Fundação, configuração e storage
 
-Import, API pública, application factory, múltiplas apps, ausência de `self.app`, inicialização duplicada, configuração fail-fast, precedência, imutabilidade, authority, redirect URI, scopes e proteção de segredos.
+Permanecem cobertos os contratos das ETAPAS 00, 01 e 02: empacotamento, application factory, múltiplas apps, configuração imutável, namespace, TTL, concorrência local, falhas e artefatos.
 
-### Storage
+### Identidade
 
-- Suíte contratual para backend direto e adaptador namespaced;
-- Ausência, save, load e delete idempotente;
-- Last-write-wins sequencial e concorrente;
-- TTL, expiração preguiçosa e limpeza explícita;
-- Chaves, valores, TTLs e namespaces inválidos;
-- Isolamento entre namespaces no mesmo backend;
-- Backend padrão separado entre aplicações;
-- Backend compartilhado com namespaces distintos;
-- Falhas externas encapsuladas e causa preservada;
-- Respostas inválidas do backend rejeitadas;
-- Armazenamento preservado em inicialização duplicada.
+- Construção por claims;
+- Campos obrigatórios e opcionais;
+- Tenant esperado;
+- Fallback de username;
+- `stable_id`;
+- Imutabilidade rasa e profunda;
+- Rejeição de credenciais;
+- Claims JSON-compatible;
+- Representação sanitizada;
+- Isolamento entre requisições e apps;
+- Falhas explícitas de `current_identity`.
+
+### MSAL e token cache
+
+- Cliente padrão lazy e PII logging desligado;
+- Fábrica injetável e ausência de rede nos testes;
+- Chave de cache por hash de conta;
+- Cache ausente, válido, corrompido e não UTF-8;
+- Persistência somente quando alterado;
+- TTL aplicado;
+- Conta correspondente e ausente;
+- Scopes padrão e dinâmicos;
+- Force refresh;
+- Sucesso, interação necessária, erro do provedor e resultado inválido;
+- Sanitização de metadata;
+- Exceções inesperadas encapsuladas;
+- Cache persistido após alteração mesmo quando interação é necessária;
+- Integração request-local de `acquire_token()`.
 
 ## Artefatos
 
-Após `python -m build`, a suíte valida:
-
-- Wheel e source distribution;
-- Versão e metadata;
-- Requisitos de Python e dependências diretas;
-- `py.typed`, configuração, erros, extensão e módulos de storage;
-- Testes de configuração, storage e contrato no sdist.
+Após `python -m build`, a suíte valida wheel e sdist, metadata, `py.typed`, módulos de identidade, contexto, auth, storage e testes correspondentes.
 
 ## Ferramentas
 
 pytest, pytest-cov, Ruff, mypy estrito, Bandit, pip-audit, build e twine check.
 
-## Camadas futuras
+## Limitações de validação local
 
-Identidade, fluxo, callback, token silencioso, logout, hooks e integração com o template pertencem às etapas seguintes.
+O ambiente de entrega executa uma versão local do Python. As demais versões são validadas pela matriz de CI após o usuário aplicar e enviar os arquivos.

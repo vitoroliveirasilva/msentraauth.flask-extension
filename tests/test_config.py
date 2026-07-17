@@ -176,7 +176,9 @@ def test_http_redirect_is_rejected_outside_loopback() -> None:
         "https://app.example.com/auth/callback?source=entra",
     ],
 )
-def test_https_and_loopback_development_redirects_are_accepted(redirect_uri: str) -> None:
+def test_https_and_loopback_development_redirects_are_accepted(
+    redirect_uri: str,
+) -> None:
     app = create_app(MS_ENTRA_REDIRECT_URI=redirect_uri)
 
     MicrosoftEntraAuth().init_app(app)
@@ -245,8 +247,14 @@ def test_scope_generator_is_materialized_for_reuse_across_apps() -> None:
     extension.init_app(first_app)
     extension.init_app(second_app)
 
-    assert first_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
-    assert second_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
+    assert first_app.extensions["ms_entra_auth"].config.scopes == (
+        "User.Read",
+        "Mail.Read",
+    )
+    assert second_app.extensions["ms_entra_auth"].config.scopes == (
+        "User.Read",
+        "Mail.Read",
+    )
 
 
 def test_default_session_namespace_is_stable_and_application_specific() -> None:
@@ -285,4 +293,28 @@ def test_invalid_session_namespace_is_rejected(namespace: str) -> None:
     app.config["MS_ENTRA_SESSION_NAMESPACE"] = namespace
 
     with pytest.raises(ConfigurationError, match="MS_ENTRA_SESSION_NAMESPACE"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+def test_token_cache_ttl_defaults_to_eight_hours() -> None:
+    app = create_app()
+
+    MicrosoftEntraAuth().init_app(app)
+
+    assert app.extensions["ms_entra_auth"].config.token_cache_ttl == 28_800
+
+
+def test_token_cache_ttl_can_be_configured_and_constructor_wins() -> None:
+    app = create_app(MS_ENTRA_TOKEN_CACHE_TTL=3600)
+
+    MicrosoftEntraAuth(token_cache_ttl=7200).init_app(app)
+
+    assert app.extensions["ms_entra_auth"].config.token_cache_ttl == 7200
+
+
+@pytest.mark.parametrize("ttl", [True, False, 0, -1, 1.5, "3600", object()])
+def test_token_cache_ttl_must_be_positive_integer(ttl: object) -> None:
+    app = create_app(MS_ENTRA_TOKEN_CACHE_TTL=ttl)
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_TOKEN_CACHE_TTL"):
         MicrosoftEntraAuth().init_app(app)
