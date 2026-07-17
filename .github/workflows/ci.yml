@@ -87,8 +87,16 @@ jobs:
           from flask import Flask
           from flask_ms_entra_auth import MicrosoftEntraAuth, __version__
 
+          from importlib.metadata import version
+
           app = Flask("package-smoke-test")
+          app.config.from_mapping(
+              MS_ENTRA_CLIENT_ID="smoke-client",
+              MS_ENTRA_CLIENT_SECRET="smoke-secret",
+              MS_ENTRA_TENANT_ID="smoke.example.com",
+              MS_ENTRA_REDIRECT_URI="https://smoke.example.com/auth/callback",
+          )
           MicrosoftEntraAuth().init_app(app)
           assert "ms_entra_auth" in app.extensions
-          assert __version__ == "0.1.0"
+          assert version("flask-ms-entra-auth") == __version__
           PY

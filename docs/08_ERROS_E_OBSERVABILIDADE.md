@@ -15,14 +15,21 @@ MicrosoftEntraAuthError
 └── ProviderUnavailableError
 ```
 
-## Garantias
+## Garantias implementadas
 
-- Erros previsíveis não viram `500` por padrão;
-- Mensagens públicas são seguras;
-- Correlation ID pode ser preservado;
-- Auth code, token e cache nunca entram na exceção pública.
+- Configuração ausente ou inválida gera `ConfigurationError` durante `init_app()`;
+- Mensagens indicam a chave ou a regra violada sem repetir o valor recebido;
+- Client secret não aparece na representação da configuração resolvida;
+- Erros de configuração surgem antes de qualquer chamada de rede;
+- A causa é previsível e pode ser tratada pela aplicação durante o startup.
 
-## Eventos
+## Garantias futuras
+
+- Erros previsíveis de autenticação não devem virar `500` por padrão;
+- Correlation ID poderá ser preservado;
+- Auth code, token e cache nunca entrarão na exceção pública.
+
+## Eventos planejados
 
 - `authentication_started`;
 - `authentication_succeeded`;
@@ -34,7 +41,9 @@ MicrosoftEntraAuthError
 - `logout_completed`;
 - `storage_failure`.
 
-## Permitido em logs
+Nenhum evento ou integração de logging foi implementado na ETAPA 01.
+
+## Permitido em logs futuros
 
 Timestamp, nível, evento, request ID, endpoint, código normalizado, correlation ID, duração e versão.
 
@@ -44,4 +53,4 @@ Client secret, Authorization, cookie, auth code, tokens, cache, claims completas
 
 ## Métricas
 
-O núcleo pode expor hooks, mas não impor biblioteca de telemetria e logging de PII permanece desligado por padrão.
+O núcleo poderá expor hooks, mas não imporá biblioteca de telemetria. Logging de PII permanece desligado por padrão.

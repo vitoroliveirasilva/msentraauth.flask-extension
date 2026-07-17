@@ -6,7 +6,7 @@ Documentação coerente, estrutura `src`, `pyproject.toml`, pacote importável, 
 
 ## Etapa 01: configuração
 
-Validação fail-fast, authority, redirect URI, scopes e testes.
+Validação fail-fast, precedência, configuração imutável por aplicação, authority, redirect URI, scopes, erros públicos e testes.
 
 ## Etapa 02: storage
 

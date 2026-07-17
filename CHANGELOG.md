@@ -1,28 +1,30 @@
 # Changelog
 
-Todas as mudanças relevantes deste projeto serão documentadas neste arquivo, seguindo [Keep a Changelog](https://keepachangelog.com/) e [Semantic Versioning](https://semver.org/).
-
 ## Adicionado
 
-- Empacotamento com `pyproject.toml`, Hatchling e estrutura `src`;
-- Pacote tipado `flask_ms_entra_auth` e marcador `py.typed`;
-- API pública inicial com `MicrosoftEntraAuth` e `__version__`;
-- `init_app()` compatível com application factory e múltiplas aplicações;
-- Estado isolado por aplicação em `app.extensions["ms_entra_auth"]`;
-- Política explícita para inicialização duplicada;
-- Testes unitários e validação de wheel e source distribution;
-- Ruff, mypy, pytest-cov, Bandit, pip-audit, build e twine;
-- Workflow mínimo de CI para Python 3.11, 3.12, 3.13 e 3.14;
-- Registro de status da implementação e ADR da inicialização duplicada.
+- Resolução de configuração por argumentos da instância, `app.config` e padrões seguros;
+- Configuração imutável e isolada por aplicação;
+- Validação fail-fast de client ID, client secret, tenant ID e redirect URI;
+- Derivação e validação de authority;
+- Normalização e deduplicação de scopes;
+- Exceções públicas `MicrosoftEntraAuthError` e `ConfigurationError`;
+- Testes de configuração, precedência, isolamento, segurança e imutabilidade;
+- ADR sobre configuração validada por aplicação.
 
 ## Alterado
 
-- README, documentação de arquitetura, API, testes, versionamento, plano, critérios e exemplos para distinguir o que existe do que permanece planejado.
+- `init_app()` passa a validar configuração antes de registrar estado;
+- Versão elevada para `0.2.0`;
+- Validação de distribuição deixa de fixar a versão em múltiplos arquivos;
+- README, API pública, arquitetura, exemplos, critérios e status atualizados.
 
 ## Segurança
 
-- Auditoria estática com Bandit e auditoria de dependências com pip-audit adicionadas à validação local e à CI.
+- Client secret é omitido de representações e mensagens de erro;
+- Redirects HTTP externos são rejeitados;
+- Authority exige HTTPS e tenant coerente;
+- Placeholders e tenants genéricos são rejeitados.
 
 ## Limites
 
-- Nenhum fluxo Microsoft Entra ID ou comportamento MSAL foi implementado.
+- Nenhum cliente MSAL, storage, identidade, token, login, callback, rota ou chamada de rede foi implementado.

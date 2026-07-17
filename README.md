@@ -4,15 +4,15 @@ Extensão Flask reutilizável, em desenvolvimento, para integrar aplicações we
 
 ## Estado atual
 
-A **ETAPA 00** está implementada e com isso é fornecido apenas a fundação executável e instalável da extensão.
+A **ETAPA 01** está implementada. A versão de desenvolvimento `0.2.0` fornece a fundação instalável e a resolução validada de configuração por aplicação.
 
 |                        Componente | Estado        |
 | --------------------------------: | :------------ |
 |              Empacotamento Python | Implementado  |
 |                   Estrutura `src` | Implementada  |
 | `MicrosoftEntraAuth` e `init_app` | Implementados |
-|                Testes e qualidade | Implementados |
-|                         CI mínima | Implementada  |
+|            Configuração fail-fast | Implementada  |
+|            Testes, qualidade e CI | Implementados |
 |   Autenticação Microsoft Entra ID | Não iniciada  |
 |                       Fluxos MSAL | Não iniciados |
 |                Publicação no PyPI | Não realizada |
@@ -34,12 +34,12 @@ No PowerShell:
 
 ```powershell
 python -m venv venv
-venv\scripts\activate
+venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-## Uso disponível na ETAPA 00
+## Uso disponível na ETAPA 01
 
 ```python
 from flask import Flask
@@ -50,19 +50,44 @@ entra_auth = MicrosoftEntraAuth()
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.config.from_mapping(
+        MS_ENTRA_CLIENT_ID="11111111-1111-1111-1111-111111111111",
+        MS_ENTRA_CLIENT_SECRET="obtido-de-um-secret-provider",
+        MS_ENTRA_TENANT_ID="22222222-2222-2222-2222-222222222222",
+        MS_ENTRA_REDIRECT_URI="https://app.example.com/auth/callback",
+        MS_ENTRA_SCOPES=["User.Read"],
+    )
     entra_auth.init_app(app)
     return app
 ```
 
-Atualmente, `init_app()`:
+Também é possível definir valores imutáveis na instância. Eles possuem precedência sobre `app.config`:
+
+```python
+entra_auth = MicrosoftEntraAuth(
+    tenant_id="22222222-2222-2222-2222-222222222222",
+    scopes=["User.Read", "Mail.Read"],
+)
+```
+
+`init_app()` atualmente:
 
 - Valida que o argumento é uma instância de `flask.Flask`;
-- Registra estado isolado em `app.extensions["ms_entra_auth"]`;
+- Resolve configuração por argumentos da instância, `app.config` e padrões seguros;
+- Exige client ID, client secret, tenant ID e redirect URI;
+- Deriva authority e aplica `User.Read` como scope padrão;
+- Rejeita valores vazios, placeholders, tenants genéricos, authority divergente e redirect HTTP externo;
+- Registra configuração imutável e estado isolado em `app.extensions["ms_entra_auth"]`;
 - Aceita a mesma instância da extensão em múltiplas aplicações;
 - Não armazena a aplicação em `self.app`;
-- É idempotente quando a mesma instância inicializa novamente a mesma aplicação;
-- Rejeita uma segunda instância tentando ocupar a chave já registrada;
+- Preserva a configuração original quando a mesma aplicação é inicializada novamente;
 - Não realiza chamadas de rede, não inicializa MSAL e não registra rotas.
+
+Falhas previsíveis de configuração usam `ConfigurationError`:
+
+```python
+from flask_ms_entra_auth import ConfigurationError
+```
 
 ## Validação local
 
@@ -78,9 +103,17 @@ python -m twine check dist/*
 DIST_DIR=dist pytest tests/test_distribution.py --no-cov
 ```
 
+No PowerShell, a última validação usa:
+
+```powershell
+$env:DIST_DIR = "dist"
+pytest tests/test_distribution.py --no-cov
+Remove-Item Env:DIST_DIR
+```
+
 ## Escopo futuro
 
-A documentação descreve a direção planejada para Authorization Code Flow, identidade autenticada, token cache, storage, hooks e rotas opcionais (esses recursos não fazem parte da implementação atual).
+Storage, identidade autenticada, cliente MSAL, Authorization Code Flow, token cache, hooks, decorators e rotas permanecem planejados. Nenhum desses recursos faz parte da implementação atual.
 
 O [msentraauth.flask-template](https://github.com/vitoroliveirasilva/msentraauth.flask-template) será futuramente a aplicação consumidora e de referência.
 
