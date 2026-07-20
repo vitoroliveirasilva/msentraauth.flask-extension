@@ -21,6 +21,18 @@ class AuthenticationRequired(AuthenticationError):
     """Exceção levantada quando uma operação requer uma identidade ou conta autenticada"""
 
 
+class AuthenticationCancelled(AuthenticationError):
+    """Exceção levantada quando o usuário cancela previsivelmente a autenticação interativa"""
+
+
+class InvalidCallbackError(AuthenticationError):
+    """Exceção levantada quando um callback de autenticação está faltando, expirado ou inconsistente"""
+
+
+class InvalidNavigationTarget(AuthenticationError):
+    """Exceção levantada quando um destino pós-autenticação é inseguro"""
+
+
 class IdentityValidationError(AuthenticationError):
     """Exceção levantada quando reivindicações de identidade estão ausentes, inconsistentes ou inseguras"""
 

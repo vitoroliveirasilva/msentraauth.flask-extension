@@ -15,3 +15,5 @@
 | 011 |    Storage, namespace, TTL e concorrência local |
 | 012 |   Identidade imutável e contexto por requisição |
 | 013 | Cliente MSAL lazy e cache serializado por conta |
+| 014 |           Fluxo web server-side e consumo único |
+| 015 |    Blueprint opcional, decorator e logout local |

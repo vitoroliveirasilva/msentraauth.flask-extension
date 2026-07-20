@@ -1,56 +1,72 @@
 # Fluxo de autenticação
 
-## Estado atual
-
-Somente o núcleo para aquisição silenciosa está implementado. Authorization Code Flow, login, callback, state, nonce, replay protection e rotas continuam planejados.
-
-## Aquisição silenciosa implementada
+## Login
 
 ```text
-current_identity
+GET /auth/login?next=/painel
       |
-      +-- home_account_id
+      +-- valida destino
+      +-- cria state imprevisível
+      +-- initiate_auth_code_flow
+      +-- persiste dicionário MSAL com TTL
+      +-- cookie recebe apenas flow_id aleatório
       v
-storage namespaced -> SerializableTokenCache
-      |
-      v
-ConfidentialClientApplication lazy
-      |
-      +-- get_accounts()
-      +-- seleção exata por home_account_id
-      +-- acquire_token_silent_with_error()
-      |
-      v
-access token apenas no servidor
+Microsoft Entra ID
 ```
 
-Regras:
+Um login novo descarta o fluxo pendente anterior da mesma sessão.
 
-1. Sem identidade atual, gera `AuthenticationRequired`;
-2. Sem conta correspondente no cache, gera `AuthenticationRequired`;
-3. Sem token silencioso disponível, gera `ConsentRequired`;
-4. Erro retornado pelo MSAL vira `TokenAcquisitionError` sanitizado;
-5. Exceção inesperada do cliente ou provedor vira `ProviderUnavailableError`;
-6. Cache alterado é persistido mesmo quando a operação exige interação;
-7. Cache inalterado não gera escrita;
-8. Access token não entra em `Identity`, cookie ou log.
-
-## Login planejado: ETAPA 05
+## Callback
 
 ```text
-Navegador -> GET /auth/login -> initiate_auth_code_flow -> Entra ID
+GET /auth/callback?code=...&state=...
+      |
+      +-- Consome flow_id do cookie
+      +-- Carrega e apaga fluxo antes da redenção
+      +-- Rejeita campos duplicados
+      +-- Compara state em tempo constante
+      +-- Acquire_token_by_auth_code_flow
+      +-- Valida claims, tenant e conta
+      +-- Persiste cache MSAL quando alterado
+      +-- Persiste Identity server-side
+      +-- Rotaciona referência de sessão
+      v
+Redirect para next validado
 ```
 
-A etapa futura deverá validar destino, iniciar fluxo MSAL, persistir o dicionário retornado e redirecionar para `auth_uri`.
+O nonce e demais dados OIDC permanecem dentro do dicionário do fluxo criado e validado pelo MSAL. A extensão não reimplementa a validação criptográfica do protocolo.
 
-## Callback planejado: ETAPA 05
+## Replay
 
-```text
-Entra ID -> code + state -> /auth/callback -> acquire_token_by_auth_code_flow
-```
+O fluxo é removido do storage antes da troca do código. Repetição, concorrência ou reutilização do mesmo callback falham como `InvalidCallbackError`.
 
-Deverá validar state, consumir fluxo uma única vez, validar claims e tenant, criar `Identity`, persistir contexto de autenticação e nunca registrar auth code.
+## Cancelamento e erros
 
-## Logout planejado
+- `access_denied` vira `AuthenticationCancelled`;
+- State ausente ou divergente vira `InvalidCallbackError`;
+- Erros retornados pelo provedor viram `TokenAcquisitionError` sanitizado;
+- Falhas inesperadas viram `ProviderUnavailableError`;
+- Auth code, descrição bruta e resposta completa não entram em mensagens públicas.
 
-Deverá limpar somente fluxo, identidade e cache da sessão atual. Remover cache local não encerra automaticamente todas as sessões Microsoft.
+## Identidade e sessão
+
+- O cookie Flask guarda apenas um identificador aleatório;
+- A identidade serializada fica no storage com TTL e é restaurada em `before_request`;
+- Uma nova autenticação rotaciona a referência e remove a identidade anterior.
+
+## Logout
+
+`POST /auth/logout` remove:
+
+1. Fluxo pendente da sessão;
+2. Identidade server-side;
+3. Referência no cookie;
+4. Token cache da conta autenticada.
+
+Outras chaves da sessão Flask são preservadas (o logout é local e não encerra todas as sessões Microsoft).
+
+## Next URL
+
+- Rotas relativas locais são aceitas;
+- URLs absolutas exigem allowlist exata;
+- Valores ambíguos, protocol-relative, com barra invertida, fragmento ou host não permitido são rejeitados.

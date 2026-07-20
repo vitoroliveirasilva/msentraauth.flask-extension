@@ -1,34 +1,48 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import wraps
+from typing import ParamSpec, overload
 
-from flask import Flask, current_app
+from flask import Flask, current_app, redirect, request, url_for
+from flask.typing import ResponseReturnValue
 
 from .auth import MsalService
 from .auth.client import create_confidential_client
+from .auth.flow import AuthCodeFlowService
 from .auth.protocols import MsalClientFactory
+from .auth.token_cache import delete_token_cache
 from .config import ConfigOverrides, MicrosoftEntraAuthConfig, resolve_config
 from .context import get_current_identity
+from .errors import AuthenticationRequired
 from .storage import AuthStorage, MemoryStorage
 from .storage.namespaced import NamespacedStorage
+from .web.models import LoginResult
+from .web.routes import blueprint_name, create_auth_blueprint
+from .web.session import WebSessionManager
+from .web.urls import validate_next_url
 
 _EXTENSION_KEY = "ms_entra_auth"
+_P = ParamSpec("_P")
 
 
 @dataclass(slots=True)
 class _MicrosoftEntraAuthState:
-    """State owned by exactly one Flask application."""
+    # Estado do MicrosoftEntraAuth para uma aplicação Flask específica. Contém a configuração, armazenamento, serviços MSAL e fluxo de autenticação, gerenciador de sessão web e informações sobre o registro de rotas.
 
     extension: MicrosoftEntraAuth
     config: MicrosoftEntraAuthConfig
     storage: AuthStorage
     msal: MsalService
+    flow: AuthCodeFlowService
+    web_session: WebSessionManager
+    routes_registered: bool = False
     data: dict[str, object] = field(default_factory=dict)
 
 
 class MicrosoftEntraAuth:
-    # A instância armazena substituições de construtor imutáveis e fábricas de backend injetáveis, mas nunca armazena uma aplicação Flask. O estado da aplicação resolvido vive sob ``app.extensions['ms_entra_auth']``
+    # MS Entra Autenticação para aplicações Flask. A instância armazena substituições de construtor imutáveis e fábricas de back-end injetáveis, mas nunca armazena uma aplicação Flask. O estado da aplicação resolvido vive sob ``app.extensions['ms_entra_auth']``.
 
     __slots__ = ("_client_factory", "_overrides", "_storage_backend")
 
@@ -44,6 +58,15 @@ class MicrosoftEntraAuth:
         scopes: Iterable[str] | None = None,
         session_namespace: str | None = None,
         token_cache_ttl: int | None = None,
+        flow_ttl: int | None = None,
+        identity_ttl: int | None = None,
+        url_prefix: str | None = None,
+        post_login_redirect_uri: str | None = None,
+        post_logout_redirect_uri: str | None = None,
+        allowed_next_hosts: Iterable[str] | None = None,
+        auto_register_routes: bool | None = None,
+        handle_route_errors: bool | None = None,
+        unauthenticated_mode: str | None = None,
         storage: AuthStorage | None = None,
         msal_client_factory: MsalClientFactory | None = None,
     ) -> None:
@@ -64,6 +87,19 @@ class MicrosoftEntraAuth:
             scopes=(scopes if scopes is None or isinstance(scopes, str) else tuple(scopes)),
             session_namespace=session_namespace,
             token_cache_ttl=token_cache_ttl,
+            flow_ttl=flow_ttl,
+            identity_ttl=identity_ttl,
+            url_prefix=url_prefix,
+            post_login_redirect_uri=post_login_redirect_uri,
+            post_logout_redirect_uri=post_logout_redirect_uri,
+            allowed_next_hosts=(
+                allowed_next_hosts
+                if allowed_next_hosts is None or isinstance(allowed_next_hosts, str)
+                else tuple(allowed_next_hosts)
+            ),
+            auto_register_routes=auto_register_routes,
+            handle_route_errors=handle_route_errors,
+            unauthenticated_mode=unauthenticated_mode,
         )
         self._storage_backend = storage
         self._client_factory = msal_client_factory or create_confidential_client
@@ -71,7 +107,7 @@ class MicrosoftEntraAuth:
             self.init_app(app)
 
     def init_app(self, app: Flask) -> None:
-        # Valida a configuração e registra o estado da aplicação isolada. A repetição da inicialização com esta mesma instância de extensão é uma operação sem efeito idempotente e preserva a configuração, armazenamento e serviço MSAL resolvidos originais. A inicialização com outra instância para uma chave de extensão ocupada gera ``RuntimeError``
+        # Valida a configuração e registra o estado da aplicação isolada. Repetir a inicialização com esta mesma instância de extensão é uma operação sem efeito idempotente e preserva o estado resolvido original
         if not isinstance(app, Flask):
             msg = "app must be an instance of flask.Flask"
             raise TypeError(msg)
@@ -92,12 +128,91 @@ class MicrosoftEntraAuth:
             storage=storage,
             client_factory=self._client_factory,
         )
-        app.extensions[_EXTENSION_KEY] = _MicrosoftEntraAuthState(
+        flow_service = AuthCodeFlowService(
+            config=config,
+            storage=storage,
+            client_factory=self._client_factory,
+        )
+        web_session = WebSessionManager(config, storage)
+        state = _MicrosoftEntraAuthState(
             extension=self,
             config=config,
             storage=storage,
             msal=msal_service,
+            flow=flow_service,
+            web_session=web_session,
         )
+        app.extensions[_EXTENSION_KEY] = state
+
+        @app.before_request
+        def _restore_ms_entra_identity() -> None:
+            current_state = app.extensions.get(_EXTENSION_KEY)
+            if isinstance(current_state, _MicrosoftEntraAuthState):
+                current_state.web_session.restore_identity()
+
+        if config.auto_register_routes:
+            self.register_routes(app)
+
+    def register_routes(self, app: Flask) -> None:
+        # Registra o blueprint de login, callback e logout POST opcional. Repetir a chamada com a mesma aplicação é uma operação sem efeito idempotente e preserva o estado original do registro de rotas
+        if not isinstance(app, Flask):
+            msg = "app must be an instance of flask.Flask"
+            raise TypeError(msg)
+        state = self._state_for_app(app)
+        if state.routes_registered:
+            return
+        if blueprint_name() in app.blueprints:
+            raise RuntimeError("the 'ms_entra_auth' blueprint name is already registered")
+
+        app.register_blueprint(
+            create_auth_blueprint(self, state.config),
+            url_prefix=state.config.url_prefix,
+        )
+        state.routes_registered = True
+
+    def begin_login(
+        self,
+        next_url: str | None = None,
+        scopes: Iterable[str] | None = None,
+    ) -> str:
+        # Inicia um fluxo de login interativo e retorna a URI de autorização do provedor. O fluxo é armazenado na sessão web para que possa ser consumido posteriormente no callback
+        state = self._current_state()
+        state.web_session.require_secure_session()
+        safe_next_url = validate_next_url(next_url, state.config)
+
+        previous_flow_id = state.web_session.discard_pending_flow()
+        if previous_flow_id is not None:
+            state.flow.discard(previous_flow_id)
+
+        started = state.flow.begin_login(next_url=safe_next_url, scopes=scopes)
+        try:
+            state.web_session.set_pending_flow(started.flow_id)
+        except Exception:
+            state.flow.discard(started.flow_id)
+            raise
+        return started.auth_uri
+
+    def complete_login(self, auth_response: Mapping[str, object]) -> LoginResult:
+        # Consome um fluxo de login pendente, persiste a identidade resultante e retorna a URL de redirecionamento segura
+        state = self._current_state()
+        flow_id = state.web_session.consume_pending_flow()
+        result = state.flow.complete_login(flow_id=flow_id, auth_response=auth_response)
+        state.web_session.establish_identity(result.identity)
+        return result
+
+    def logout(self) -> str:
+        # Limpa apenas a identidade local desta sessão do navegador, o fluxo e o cache de tokens
+        state = self._current_state()
+        state.web_session.require_secure_session()
+
+        pending_flow_id = state.web_session.discard_pending_flow()
+        if pending_flow_id is not None:
+            state.flow.discard(pending_flow_id)
+
+        identity = state.web_session.clear_authentication()
+        if identity is not None:
+            delete_token_cache(state.storage, identity.home_account_id)
+        return state.config.post_logout_redirect_uri
 
     def acquire_token(
         self,
@@ -114,8 +229,77 @@ class MicrosoftEntraAuth:
             force_refresh=force_refresh,
         )
 
+    @overload
+    def login_required(
+        self,
+        view: Callable[_P, ResponseReturnValue],
+        /,
+    ) -> Callable[_P, ResponseReturnValue]: ...
+
+    @overload
+    def login_required(
+        self,
+        view: None = None,
+        /,
+        *,
+        on_missing: str | None = None,
+    ) -> Callable[
+        [Callable[_P, ResponseReturnValue]],
+        Callable[_P, ResponseReturnValue],
+    ]: ...
+
+    def login_required(
+        self,
+        view: Callable[_P, ResponseReturnValue] | None = None,
+        /,
+        *,
+        on_missing: str | None = None,
+    ) -> (
+        Callable[_P, ResponseReturnValue]
+        | Callable[[Callable[_P, ResponseReturnValue]], Callable[_P, ResponseReturnValue]]
+    ):
+        # Requer autenticação, redirecionando solicitações seguras ou levantando explicitamente
+        if on_missing is not None and on_missing not in {"raise", "redirect"}:
+            raise ValueError("on_missing must be 'redirect' or 'raise'")
+
+        def decorate(
+            function: Callable[_P, ResponseReturnValue],
+        ) -> Callable[_P, ResponseReturnValue]:
+            @wraps(function)
+            def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> ResponseReturnValue:
+                try:
+                    _ = get_current_identity()
+                except AuthenticationRequired:
+                    return self._handle_unauthenticated(on_missing=on_missing)
+                return function(*args, **kwargs)
+
+            return wrapped
+
+        if view is None:
+            return decorate
+        return decorate(view)
+
+    def _handle_unauthenticated(self, *, on_missing: str | None) -> ResponseReturnValue:
+        state = self._current_state()
+        mode = state.config.unauthenticated_mode if on_missing is None else on_missing
+        if mode == "raise" or request.method not in {"GET", "HEAD"}:
+            raise AuthenticationRequired("authentication is required")
+        if not state.routes_registered:
+            raise RuntimeError("authentication routes are not registered")
+
+        target = request.full_path
+        if target.endswith("?"):
+            target = target[:-1]
+        return redirect(url_for(f"{blueprint_name()}.login", next=target))
+
     def _current_state(self) -> _MicrosoftEntraAuthState:
         state = current_app.extensions.get(_EXTENSION_KEY)
         if not isinstance(state, _MicrosoftEntraAuthState) or state.extension is not self:
             raise RuntimeError("MicrosoftEntraAuth is not initialized for the current application")
+        return state
+
+    def _state_for_app(self, app: Flask) -> _MicrosoftEntraAuthState:
+        state = app.extensions.get(_EXTENSION_KEY)
+        if not isinstance(state, _MicrosoftEntraAuthState) or state.extension is not self:
+            raise RuntimeError("MicrosoftEntraAuth is not initialized for this application")
         return state

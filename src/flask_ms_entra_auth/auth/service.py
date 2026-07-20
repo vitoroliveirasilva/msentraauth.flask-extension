@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from ..config import MicrosoftEntraAuthConfig
 from ..errors import (
@@ -12,13 +13,13 @@ from ..errors import (
 )
 from ..storage import AuthStorage
 from .client import create_confidential_client
-from .protocols import MsalAccount, MsalClientFactory, MsalResult
+from .protocols import MsalAccount, MsalClientFactory, MsalResult, SilentMsalClient
 from .token_cache import load_token_cache, persist_token_cache
 
 
 @dataclass(frozen=True, slots=True)
 class MsalService:
-    # Application-scoped MSAL orquestração sem estado de solicitação ou usuário. O serviço é imutável e não mantém estado de solicitação ou usuário. Ele é projetado para ser usado em um contexto de aplicativo Flask, onde a configuração e o armazenamento são fornecidos no nível do aplicativo
+    # Orquestração MSAL no escopo do aplicativo sem estado de solicitação ou usuário
 
     config: MicrosoftEntraAuthConfig
     storage: AuthStorage
@@ -31,7 +32,7 @@ class MsalService:
         scopes: Iterable[str] | None = None,
         force_refresh: bool = False,
     ) -> str:
-        # Retorna um token de acesso do lado do servidor do cache ou atualização silenciosa
+        # Retorna um token de acesso server-side do cache ou atualização silenciosa
         requested_scopes = _normalize_scopes(scopes, default=self.config.scopes)
         if not isinstance(force_refresh, bool):
             msg = "force_refresh must be a boolean"
@@ -39,7 +40,7 @@ class MsalService:
 
         cache = load_token_cache(self.storage, home_account_id)
         try:
-            client = self.client_factory(self.config, cache)
+            client = cast(SilentMsalClient, self.client_factory(self.config, cache))
             accounts = client.get_accounts()
             account = _select_account(accounts, home_account_id)
             result = client.acquire_token_silent_with_error(

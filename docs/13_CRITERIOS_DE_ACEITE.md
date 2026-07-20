@@ -2,49 +2,45 @@
 
 ## Etapas anteriores
 
-Os critérios das ETAPAS 00, 01 e 02 permanecem atendidos: instalação, application factory, configuração, storage, isolamento, qualidade, auditoria e build.
+Fundação, configuração, storage, identidade e núcleo MSAL permanecem cobertos e compatíveis.
 
-## Identidade: ETAPA 03
+## Fluxo web: ETAPA 05
 
-| Critério                                            |
-| --------------------------------------------------- |
-| `Identity` pública e tipada                         |
-| Dataclass congelada e com slots                     |
-| Claims profundamente imutáveis                      |
-| `oid`, `tid` e `home_account_id` obrigatórios       |
-| Tenant esperado validado                            |
-| `stable_id` usa tenant + object ID                  |
-| Username/email não usados como chave                |
-| Credenciais rejeitadas                              |
-| Token ausente de identidade e `repr`                |
-| `current_identity` request-local                    |
-| Falha explícita fora de contexto e sem autenticação |
-| Isolamento entre requisições e apps                 |
+| Critério                                       |
+| ---------------------------------------------- |
+| Login inicia Authorization Code Flow pelo MSAL |
+| Fluxo e destino ficam server-side com TTL      |
+| State imprevisível e validado                  |
+| Callback consome fluxo uma única vez           |
+| Replay e callback expirado falham              |
+| Cancelamento é previsível                      |
+| Erros do provedor são sanitizados              |
+| Claims, tenant e conta são validados           |
+| Identidade é persistida e restaurada           |
+| Cookie contém somente referência aleatória     |
+| Next URL evita open redirect                   |
+| Auth code não entra em cookie ou log           |
 
-## MSAL: ETAPA 04
+## Rotas e decorator: ETAPA 06
 
-| Critério                                    |
-| ------------------------------------------- |
-| Cliente confidencial construído sob demanda |
-| Nenhum cliente ou rede em `init_app()`      |
-| Fábrica injetável para testes sem rede      |
-| PII logging desligado                       |
-| `SerializableTokenCache` exclusivo          |
-| Cache separado por conta e namespace        |
-| Chave sem `home_account_id` em texto claro  |
-| Cache salvo somente quando alterado         |
-| TTL configurável e positivo                 |
-| Conta selecionada por `home_account_id`     |
-| Aquisição silenciosa server-side            |
-| Interação necessária gera `ConsentRequired` |
-| Erros do provedor sanitizados               |
-| Refresh token não manipulado diretamente    |
-| Token não armazenado em identidade/cookie   |
+| Critério                                  |
+| ----------------------------------------- |
+| Blueprint padrão opcional                 |
+| Prefixo configurável                      |
+| Registro automático configurável          |
+| Login e callback por `GET`                |
+| Logout local por `POST`                   |
+| `login_required` bare e parametrizado     |
+| Redirect somente em métodos seguros       |
+| Modo explícito `raise`                    |
+| Tratamento de erros configurável          |
+| Logout preserva dados alheios da sessão   |
+| Logout remove cache apenas da conta atual |
 
-## Fluxo web
+## Qualidade
 
-Não iniciado. Login, callback, state, nonce, replay e restauração de identidade pertencem à ETAPA 05.
+Lint, formatação, tipagem, testes, cobertura, auditoria, build, metadata, artefatos e instalação limpa devem permanecer aprovados.
 
-## Release
+## Fora do escopo
 
-Build, twine check, tipagem, lint, testes, cobertura, Bandit, pip-audit, documentação e changelog permanecem configurados. Publicação não foi realizada.
+Hooks, integração automática com cadastro local, hardening distribuído, template, Graph e publicação.

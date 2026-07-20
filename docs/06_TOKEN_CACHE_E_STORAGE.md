@@ -1,6 +1,6 @@
 # Token cache e storage
 
-## Contrato de storage
+## Contrato
 
 ```python
 class AuthStorage(Protocol):
@@ -9,50 +9,37 @@ class AuthStorage(Protocol):
     def delete(self, key: str) -> None: ...
 ```
 
-`MemoryStorage` é thread-safe e adequado somente para desenvolvimento e testes.
+## Dados persistidos
 
-## Token cache implementado
+|             Dado | TTL padrão | Chave                        |
+| ---------------: | :--------- | :--------------------------- |
+| Fluxo interativo | 600 s      | Referência aleatória         |
+|       Identidade | 28800 s    | Hash de session ID aleatório |
+|      Token cache | 28800 s    | Hash de `home_account_id`    |
 
-A extensão usa exclusivamente `msal.SerializableTokenCache`.
+Todos recebem também o namespace da aplicação.
 
-- Um cache é carregado por `home_account_id`;
-- O identificador não aparece na chave: é transformado por SHA-256;
-- A chave lógica é `token-cache:<digest>` dentro do namespace da aplicação;
-- Bytes são decodificados em UTF-8 e entregues a `deserialize()`;
-- `serialize()` é chamado somente quando `has_state_changed` é verdadeiro;
-- O cache é salvo com `MS_ENTRA_TOKEN_CACHE_TTL`;
-- Conteúdo inválido gera `StorageError` sem copiar o cache para a mensagem;
-- Refresh tokens nunca são lidos ou modificados diretamente.
+## Cookie
 
-## Isolamento
+O cookie Flask não contém fluxo, claims, identidade, auth code nem cache. Ele guarda apenas referências aleatórias assinadas pela `SECRET_KEY` da aplicação.
 
-```text
-backend compartilhado
-└── msentra:<namespace-aplicacao>:
-    └── token-cache:<sha256-home-account-id>
-```
+## Cache MSAL
 
-Aplicações que compartilham backend devem possuir namespace exclusivo e estável (contas diferentes não compartilham cache).
-
-## TTL
-
-|                   Dado | Política atual                             |
-| ---------------------: | :----------------------------------------- |
-|            Token cache | `MS_ENTRA_TOKEN_CACHE_TTL`, padrão 28800 s |
-|         Fluxo de login | Planejado, TTL curto                       |
-| Identidade persistente | Planejada, alinhada à sessão               |
-
-O TTL do cache é experimental e poderá ser harmonizado com a política de sessão na ETAPA 05.
+- A serialização usa exclusivamente `SerializableTokenCache`;
+- Refresh tokens não são lidos ou manipulados diretamente;
+- O cache só é gravado quando `has_state_changed` indica alteração.
 
 ## Concorrência
 
-`MemoryStorage` usa lock e last-write-wins. O contrato ainda não oferece CAS, versão ou detecção de conflito. Backends distribuídos devem documentar sua política e a ETAPA 08 revisará concorrência distribuída.
+- Fluxo interativo: consume-first, uma única redenção;
+- Escritas gerais: last-write-wins;
+- `MemoryStorage`: protegido por `RLock`, somente para desenvolvimento;
+- Concorrência distribuída e CAS permanecem para hardening futuro.
+
+## Logout
+
+Remove somente fluxo, identidade e cache associados à sessão atual. Falhas de storage são encapsuladas em `StorageError`, com causa preservada e mensagem sanitizada.
 
 ## Produção
 
-- Use backend server-side persistente;
-- Use TLS quando aplicável;
-- Aplique menor privilégio e proteção em repouso;
-- Defina TTL coerente com a sessão;
-- Não registre chave, valor, cache, token ou causa bruta de exceções;
-- Não use `MemoryStorage` em múltiplos workers.
+Use backend compartilhado entre workers, TLS quando aplicável, menor privilégio, TTL, proteção em repouso e política explícita de indisponibilidade. Nunca registre chaves, identificadores de sessão, cache ou tokens.

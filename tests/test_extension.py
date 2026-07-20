@@ -120,8 +120,20 @@ def test_invalid_app_argument_is_rejected() -> None:
         extension.init_app(invalid_app)
 
 
-def test_init_app_does_not_register_routes() -> None:
+def test_init_app_registers_routes_by_default() -> None:
     app = create_app("routes")
+    extension = MicrosoftEntraAuth()
+
+    extension.init_app(app)
+
+    rules = {rule.rule: rule.methods for rule in app.url_map.iter_rules()}
+    assert "/auth/login" in rules
+    assert "/auth/callback" in rules
+    assert rules["/auth/logout"] == {"OPTIONS", "POST"}
+
+
+def test_init_app_can_leave_routes_unregistered() -> None:
+    app = create_app("routes-disabled", MS_ENTRA_AUTO_REGISTER_ROUTES=False)
     extension = MicrosoftEntraAuth()
     rules_before = tuple(app.url_map.iter_rules())
 
@@ -288,3 +300,22 @@ def test_constructor_rejects_invalid_msal_client_factory() -> None:
 
     with pytest.raises(TypeError, match="msal_client_factory"):
         MicrosoftEntraAuth(msal_client_factory=invalid_factory)
+
+
+def test_before_request_ignores_removed_extension_state() -> None:
+    app = create_app(
+        "removed-state",
+        MS_ENTRA_AUTO_REGISTER_ROUTES=False,
+    )
+    MicrosoftEntraAuth().init_app(app)
+
+    @app.get("/health")
+    def health() -> str:
+        return "ok"
+
+    app.extensions.pop("ms_entra_auth")
+
+    response = app.test_client().get("/health")
+
+    assert response.status_code == 200
+    assert response.text == "ok"

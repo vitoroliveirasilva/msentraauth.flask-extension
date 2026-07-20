@@ -1,6 +1,6 @@
 # Arquitetura
 
-## Estado atual: ETAPAS 03 e 04
+## Estado atual: ETAPAS 05 e 06
 
 ```text
 Aplicação Flask
@@ -8,30 +8,40 @@ Aplicação Flask
       v
 MicrosoftEntraAuth.init_app(app)
       |
-      +-- configuração validada e imutável
-      +-- storage namespaced por aplicação
-      +-- MsalService lazy, sem rede no startup
+      +-- Configuração imutável
+      +-- Storage namespaced
+      +-- MsalService lazy
+      +-- AuthCodeFlowService
+      +-- WebSessionManager
+      +-- before_request de restauração
+      +-- Blueprint opcional
       |
       v
 app.extensions["ms_entra_auth"]
-      |
-      +-- config
-      +-- storage
-      +-- msal service
 
-Requisição Flask
+GET /auth/login
       |
-      +-- Identity imutável em contexto local
-      +-- current_identity (LocalProxy)
-      |
+      +-- Valida next
+      +-- Cria state
+      +-- Inicia fluxo MSAL
+      +-- Persiste fluxo server-side
       v
-MicrosoftEntraAuth.acquire_token()
+Microsoft Entra ID
       |
-      +-- home_account_id da identidade
-      +-- SerializableTokenCache por conta
-      +-- ConfidentialClientApplication sob demanda
-      +-- acquire_token_silent_with_error
-      +-- persistência apenas quando cache muda
+GET /auth/callback
+      |
+      +-- Consome referência e fluxo uma vez
+      +-- Valida state e resposta MSAL
+      +-- Valida tenant e conta
+      +-- Persiste Identity server-side
+      v
+Cookie Flask contém apenas session_id aleatório
+
+Requisições seguintes
+      |
+      +-- before_request restaura Identity
+      +-- current_identity request-local
+      +-- login_required protege endpoints
 ```
 
 ## Pacote atual
@@ -49,58 +59,60 @@ src/flask_ms_entra_auth/
 ├── auth/
 │   ├── __init__.py
 │   ├── client.py
+│   ├── flow.py
 │   ├── protocols.py
 │   ├── service.py
 │   └── token_cache.py
-└── storage/
+├── storage/
+│   ├── __init__.py
+│   ├── base.py
+│   ├── memory.py
+│   ├── namespaced.py
+│   └── validation.py
+└── web/
     ├── __init__.py
-    ├── base.py
-    ├── memory.py
-    ├── namespaced.py
-    └── validation.py
+    ├── models.py
+    ├── routes.py
+    ├── session.py
+    └── urls.py
 ```
 
 ## Responsabilidades
 
 ### `MicrosoftEntraAuth`
 
-Resolve dependências por aplicação, registra estado, suporta application factory e múltiplas apps, não guarda `app` e expõe aquisição silenciosa server-side.
+Compõe dependências por aplicação, registra rotas opcionais, inicia e completa login, executa logout local, oferece aquisição silenciosa e o decorator `login_required`. A instância nunca guarda `app`.
 
-### Configuração
+### `AuthCodeFlowService`
 
-É resolvida uma vez por aplicação, congelada e protegida contra exposição do client secret. Inclui TTL do token cache.
+Orquestra o dicionário de Authorization Code Flow produzido pelo MSAL. Fluxo e state são persistidos no servidor com TTL. O fluxo é apagado antes da redenção do código para garantir consumo único.
 
-### Storage
+### `WebSessionManager`
 
-Persiste bytes por contrato substituível. O adaptador de namespace impede colisão entre aplicações. `MemoryStorage` é somente para desenvolvimento.
+Mantém no cookie Flask somente referências aleatórias. Fluxos, identidades e caches ficam no `AuthStorage`. Também restaura a identidade no início de cada requisição e limpa exclusivamente o estado da extensão no logout.
 
-### Identidade
+### Blueprint
 
-`Identity` representa claims validadas, sem credenciais. A aplicação continua responsável por usuário local e autorização. Claims são profundamente imutáveis e `stable_id` usa tenant + object ID.
+O blueprint interno fornece login, callback e logout. É registrado automaticamente por padrão, pode usar prefixo customizado e pode ser desativado para aplicações com rotas próprias.
 
-### Contexto
+### `login_required`
 
-`current_identity` é request-local e falha explicitamente sem contexto, extensão ou autenticação. A vinculação e restauração automáticas pertencem ao fluxo web futuro.
-
-### Serviço MSAL
-
-`MsalService` é application-scoped, mas não contém estado de usuário. Recebe configuração, storage e fábrica de cliente. Cada operação carrega cache específico da conta, cria cliente sob demanda e persiste alterações.
-
-### Token cache
-
-A serialização usa exclusivamente `SerializableTokenCache`. O cache é separado por `home_account_id`, mas a chave persistida usa SHA-256 para não revelar o identificador.
+Consulta `current_identity`. Em métodos seguros pode redirecionar para login. Em métodos de alteração de estado sempre falha explicitamente, evitando transformação silenciosa de uma operação em navegação.
 
 ## Estado por camada
 
-- Por aplicação: configuração, storage namespaced e serviço MSAL em `app.extensions`;
-- Por requisição: identidade em contexto Flask;
-- Por conta: token cache serializado no backend;
-- Proibido: `self.app`, usuário global, token global, refresh token manipulado manualmente ou token em `Identity`.
+- Por aplicação: configuração, storage, serviços e flags em `app.extensions`;
+- Por navegador: referências mínimas no cookie Flask assinado;
+- Por fluxo: dicionário MSAL e destino no storage com TTL curto;
+- Por sessão autenticada: identidade no storage com TTL de sessão;
+- Por requisição: `current_identity` no contexto Flask;
+- Por conta: `SerializableTokenCache` no storage;
+- Proibido: `self.app`, usuário global, token global, auth code em cookie ou refresh token manipulado manualmente.
 
 ## Rede
 
-`init_app()` não cria `ConfidentialClientApplication` nem acessa rede. A construção ocorre somente quando uma operação MSAL é solicitada. Testes injetam fábrica sem rede.
+`init_app()` não cria cliente MSAL nem acessa rede. A rede pode ocorrer somente ao iniciar/completar fluxo ou adquirir token. Testes usam fábrica injetável e não acessam provedor real.
 
 ## Fronteiras futuras
 
-Login, callback, state, nonce, replay protection e restauração da identidade pertencem à ETAPA 05. Blueprint, decorator e logout pertencem à ETAPA 06. Hooks permanecem na ETAPA 07.
+Hooks pertencem à ETAPA 07. Hardening distribuído e revisão de ameaça pertencem à ETAPA 08. Template, Redis e Graph pertencem à ETAPA 09.

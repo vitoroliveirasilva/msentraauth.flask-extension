@@ -12,6 +12,13 @@ from .errors import ConfigurationError
 _DEFAULT_AUTHORITY_HOST: Final = "login.microsoftonline.com"
 _DEFAULT_SCOPES: Final = ("User.Read",)
 _DEFAULT_TOKEN_CACHE_TTL: Final = 28_800
+_DEFAULT_FLOW_TTL: Final = 600
+_DEFAULT_IDENTITY_TTL: Final = 28_800
+_DEFAULT_URL_PREFIX: Final = "/auth"
+_DEFAULT_POST_LOGIN_REDIRECT_URI: Final = "/"
+_DEFAULT_POST_LOGOUT_REDIRECT_URI: Final = "/"
+_DEFAULT_UNAUTHENTICATED_MODE: Final = "redirect"
+_UNAUTHENTICATED_MODES: Final = frozenset({"raise", "redirect"})
 _RESERVED_TENANTS: Final = frozenset({"common", "consumers", "organizations"})
 _PLACEHOLDERS: Final = frozenset(
     {
@@ -41,6 +48,15 @@ class MicrosoftEntraAuthConfig:
     scopes: tuple[str, ...]
     session_namespace: str
     token_cache_ttl: int
+    flow_ttl: int = _DEFAULT_FLOW_TTL
+    identity_ttl: int = _DEFAULT_IDENTITY_TTL
+    url_prefix: str = _DEFAULT_URL_PREFIX
+    post_login_redirect_uri: str = _DEFAULT_POST_LOGIN_REDIRECT_URI
+    post_logout_redirect_uri: str = _DEFAULT_POST_LOGOUT_REDIRECT_URI
+    allowed_next_hosts: tuple[str, ...] = ()
+    auto_register_routes: bool = True
+    handle_route_errors: bool = True
+    unauthenticated_mode: str = _DEFAULT_UNAUTHENTICATED_MODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +71,15 @@ class ConfigOverrides:
     scopes: Iterable[str] | None = None
     session_namespace: str | None = None
     token_cache_ttl: int | None = None
+    flow_ttl: int | None = None
+    identity_ttl: int | None = None
+    url_prefix: str | None = None
+    post_login_redirect_uri: str | None = None
+    post_logout_redirect_uri: str | None = None
+    allowed_next_hosts: Iterable[str] | None = None
+    auto_register_routes: bool | None = None
+    handle_route_errors: bool | None = None
+    unauthenticated_mode: str | None = None
 
 
 def resolve_config(
@@ -63,7 +88,7 @@ def resolve_config(
     *,
     app_name: str,
 ) -> MicrosoftEntraAuthConfig:
-    # Resolve constructor overrides, Flask configuration, and safe defaults
+    # Resolve construtor overrides, Flask configuração e safe defaults
     client_id = _required_text(
         "MS_ENTRA_CLIENT_ID",
         _pick(overrides.client_id, app_config, "MS_ENTRA_CLIENT_ID"),
@@ -111,7 +136,90 @@ def resolve_config(
     )
     token_cache_ttl = _validate_positive_integer(
         "MS_ENTRA_TOKEN_CACHE_TTL",
-        (_DEFAULT_TOKEN_CACHE_TTL if token_cache_ttl_value is None else token_cache_ttl_value),
+        _DEFAULT_TOKEN_CACHE_TTL if token_cache_ttl_value is None else token_cache_ttl_value,
+    )
+
+    flow_ttl_value = _pick(overrides.flow_ttl, app_config, "MS_ENTRA_FLOW_TTL")
+    flow_ttl = _validate_positive_integer(
+        "MS_ENTRA_FLOW_TTL",
+        _DEFAULT_FLOW_TTL if flow_ttl_value is None else flow_ttl_value,
+    )
+
+    identity_ttl_value = _pick(overrides.identity_ttl, app_config, "MS_ENTRA_IDENTITY_TTL")
+    identity_ttl = _validate_positive_integer(
+        "MS_ENTRA_IDENTITY_TTL",
+        _DEFAULT_IDENTITY_TTL if identity_ttl_value is None else identity_ttl_value,
+    )
+
+    url_prefix_value = _pick(overrides.url_prefix, app_config, "MS_ENTRA_URL_PREFIX")
+    url_prefix = _validate_url_prefix(
+        _DEFAULT_URL_PREFIX
+        if url_prefix_value is None
+        else _required_text("MS_ENTRA_URL_PREFIX", url_prefix_value)
+    )
+
+    allowed_hosts_value = _pick(
+        overrides.allowed_next_hosts,
+        app_config,
+        "MS_ENTRA_ALLOWED_NEXT_HOSTS",
+    )
+    allowed_next_hosts = _validate_allowed_next_hosts(
+        () if allowed_hosts_value is None else allowed_hosts_value
+    )
+
+    post_login_value = _pick(
+        overrides.post_login_redirect_uri,
+        app_config,
+        "MS_ENTRA_POST_LOGIN_REDIRECT_URI",
+    )
+    post_login_redirect_uri = _validate_configured_next_uri(
+        "MS_ENTRA_POST_LOGIN_REDIRECT_URI",
+        _DEFAULT_POST_LOGIN_REDIRECT_URI
+        if post_login_value is None
+        else _required_text("MS_ENTRA_POST_LOGIN_REDIRECT_URI", post_login_value),
+        allowed_next_hosts,
+    )
+
+    post_logout_value = _pick(
+        overrides.post_logout_redirect_uri,
+        app_config,
+        "MS_ENTRA_POST_LOGOUT_REDIRECT_URI",
+    )
+    post_logout_redirect_uri = _validate_configured_next_uri(
+        "MS_ENTRA_POST_LOGOUT_REDIRECT_URI",
+        _DEFAULT_POST_LOGOUT_REDIRECT_URI
+        if post_logout_value is None
+        else _required_text("MS_ENTRA_POST_LOGOUT_REDIRECT_URI", post_logout_value),
+        allowed_next_hosts,
+    )
+
+    auto_register_value = _pick(
+        overrides.auto_register_routes,
+        app_config,
+        "MS_ENTRA_AUTO_REGISTER_ROUTES",
+    )
+    auto_register_routes = _validate_boolean(
+        "MS_ENTRA_AUTO_REGISTER_ROUTES",
+        True if auto_register_value is None else auto_register_value,
+    )
+
+    handle_errors_value = _pick(
+        overrides.handle_route_errors,
+        app_config,
+        "MS_ENTRA_HANDLE_ROUTE_ERRORS",
+    )
+    handle_route_errors = _validate_boolean(
+        "MS_ENTRA_HANDLE_ROUTE_ERRORS",
+        True if handle_errors_value is None else handle_errors_value,
+    )
+
+    unauthenticated_value = _pick(
+        overrides.unauthenticated_mode,
+        app_config,
+        "MS_ENTRA_UNAUTHENTICATED_MODE",
+    )
+    unauthenticated_mode = _validate_unauthenticated_mode(
+        _DEFAULT_UNAUTHENTICATED_MODE if unauthenticated_value is None else unauthenticated_value
     )
 
     return MicrosoftEntraAuthConfig(
@@ -123,6 +231,15 @@ def resolve_config(
         scopes=scopes,
         session_namespace=session_namespace,
         token_cache_ttl=token_cache_ttl,
+        flow_ttl=flow_ttl,
+        identity_ttl=identity_ttl,
+        url_prefix=url_prefix,
+        post_login_redirect_uri=post_login_redirect_uri,
+        post_logout_redirect_uri=post_logout_redirect_uri,
+        allowed_next_hosts=allowed_next_hosts,
+        auto_register_routes=auto_register_routes,
+        handle_route_errors=handle_route_errors,
+        unauthenticated_mode=unauthenticated_mode,
     )
 
 
@@ -273,3 +390,96 @@ def _validate_positive_integer(key: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ConfigurationError(f"{key} must be a positive integer")
     return value
+
+
+def _validate_boolean(key: str, value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigurationError(f"{key} must be a boolean")
+    return value
+
+
+def _validate_url_prefix(value: str) -> str:
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or "?" in value
+        or "#" in value
+        or "\\" in value
+    ):
+        raise ConfigurationError("MS_ENTRA_URL_PREFIX must be an absolute local path")
+    normalized = value.rstrip("/")
+    if not normalized:
+        raise ConfigurationError("MS_ENTRA_URL_PREFIX must not target the application root")
+    return normalized
+
+
+def _validate_allowed_next_hosts(value: object) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, Iterable):
+        raise ConfigurationError("MS_ENTRA_ALLOWED_NEXT_HOSTS must be a non-string iterable")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for host in value:
+        if not isinstance(host, str) or not host.strip():
+            raise ConfigurationError("MS_ENTRA_ALLOWED_NEXT_HOSTS entries must be strings")
+        clean_host = host.strip().casefold()
+        try:
+            parsed = urlsplit(f"//{clean_host}")
+        except ValueError:
+            raise ConfigurationError(
+                "MS_ENTRA_ALLOWED_NEXT_HOSTS entries must be host names"
+            ) from None
+        if (
+            not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or not _has_valid_port(parsed)
+            or clean_host != parsed.netloc.casefold()
+        ):
+            raise ConfigurationError("MS_ENTRA_ALLOWED_NEXT_HOSTS entries must be host names")
+        if clean_host not in seen:
+            normalized.append(clean_host)
+            seen.add(clean_host)
+    return tuple(normalized)
+
+
+def _validate_configured_next_uri(
+    key: str,
+    value: str,
+    allowed_hosts: tuple[str, ...],
+) -> str:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        raise ConfigurationError(f"{key} must be a safe redirect URI") from None
+
+    if parsed.scheme or parsed.netloc:
+        if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+            or not _has_valid_port(parsed)
+            or parsed.netloc.casefold() not in allowed_hosts
+        ):
+            raise ConfigurationError(f"{key} must use an explicitly allowed host")
+        if parsed.scheme.casefold() == "http" and not _is_loopback_host(parsed.hostname):
+            raise ConfigurationError(f"{key} must use HTTPS outside loopback development")
+        return value
+
+    if not value.startswith("/") or value.startswith("//") or "\\" in value or parsed.fragment:
+        raise ConfigurationError(f"{key} must be a safe local path")
+    return value
+
+
+def _validate_unauthenticated_mode(value: object) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError("MS_ENTRA_UNAUTHENTICATED_MODE must be 'redirect' or 'raise'")
+    normalized = value.strip().casefold()
+    if normalized not in _UNAUTHENTICATED_MODES:
+        raise ConfigurationError("MS_ENTRA_UNAUTHENTICATED_MODE must be 'redirect' or 'raise'")
+    return normalized

@@ -96,6 +96,7 @@ jobs:
           from importlib.metadata import version
 
           app = Flask("package-smoke-test")
+          app.secret_key = "package-smoke-session-secret"
           app.config.from_mapping(
               MS_ENTRA_CLIENT_ID="smoke-client",
               MS_ENTRA_CLIENT_SECRET="smoke-secret",
@@ -116,5 +117,8 @@ jobs:
           )
           assert identity.stable_id == ("smoke.example.com", "smoke-object")
           assert state.msal.config is state.config
+          assert state.routes_registered is True
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          assert {"/auth/login", "/auth/callback", "/auth/logout"} <= routes
           assert version("flask-ms-entra-auth") == __version__
           PY

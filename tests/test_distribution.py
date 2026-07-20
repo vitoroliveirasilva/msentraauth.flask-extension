@@ -37,12 +37,17 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert "flask_ms_entra_auth/identity.py" in names
         assert "flask_ms_entra_auth/context.py" in names
         assert "flask_ms_entra_auth/auth/client.py" in names
+        assert "flask_ms_entra_auth/auth/flow.py" in names
         assert "flask_ms_entra_auth/auth/service.py" in names
         assert "flask_ms_entra_auth/auth/token_cache.py" in names
         assert "flask_ms_entra_auth/storage/base.py" in names
         assert "flask_ms_entra_auth/storage/memory.py" in names
         assert "flask_ms_entra_auth/storage/namespaced.py" in names
         assert "flask_ms_entra_auth/storage/validation.py" in names
+        assert "flask_ms_entra_auth/web/models.py" in names
+        assert "flask_ms_entra_auth/web/routes.py" in names
+        assert "flask_ms_entra_auth/web/session.py" in names
+        assert "flask_ms_entra_auth/web/urls.py" in names
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = wheel.read(metadata_name).decode()
         assert f"Version: {__version__}" in metadata
@@ -61,3 +66,8 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert any(name.endswith("/tests/test_identity.py") for name in names)
         assert any(name.endswith("/tests/test_context.py") for name in names)
         assert any(name.endswith("/tests/auth/test_service.py") for name in names)
+        assert any(name.endswith("/tests/auth/test_flow.py") for name in names)
+        assert any(name.endswith("/tests/test_extension_web.py") for name in names)
+        assert any(name.endswith("/tests/web/test_routes.py") for name in names)
+        assert any(name.endswith("/tests/web/test_session.py") for name in names)
+        assert any(name.endswith("/tests/web/test_urls.py") for name in names)

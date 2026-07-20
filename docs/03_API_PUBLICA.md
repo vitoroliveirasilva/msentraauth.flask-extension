@@ -1,107 +1,104 @@
 # API pública
 
-## Disponível na versão `0.4.0`
+## Símbolos exportados
 
-```python
-from flask_ms_entra_auth import (
-    AuthStorage,
-    AuthenticationError,
-    AuthenticationRequired,
-    ConfigurationError,
-    ConsentRequired,
-    Identity,
-    IdentityValidationError,
-    MemoryStorage,
-    MicrosoftEntraAuth,
-    MicrosoftEntraAuthError,
-    ProviderUnavailableError,
-    StorageError,
-    TokenAcquisitionError,
-    current_identity,
-    __version__,
-)
-```
+- `MicrosoftEntraAuth`;
+- `Identity`;
+- `LoginResult`;
+- `current_identity`;
+- `AuthStorage`;
+- `MemoryStorage`;
+- `MicrosoftEntraAuthError` e subclasses públicas;
+- `__version__`.
 
 ## `MicrosoftEntraAuth`
 
+### Inicialização
+
 ```python
-extension = MicrosoftEntraAuth(
-    client_id=None,
-    client_secret=None,
-    tenant_id=None,
-    redirect_uri=None,
-    authority=None,
-    scopes=None,
-    session_namespace=None,
-    token_cache_ttl=None,
-    storage=None,
-    msal_client_factory=None,
-)
+extension = MicrosoftEntraAuth()
+extension.init_app(app)
 ```
 
-`msal_client_factory` é uma seam avançada para testes e integrações controladas. A fábrica recebe configuração resolvida e `SerializableTokenCache`. O cliente padrão é `ConfidentialClientApplication` com PII logging desligado.
+A mesma instância pode inicializar múltiplas aplicações. Repetir `init_app()` na mesma aplicação é idempotente.
 
-### `init_app(app)`
+### Rotas
 
-- Valida aplicação e configuração;
-- Registra estado em `app.extensions["ms_entra_auth"]`;
-- Seleciona storage e aplica namespace;
-- Registra `MsalService` sem construir cliente MSAL;
-- Suporta a mesma instância em várias apps;
-- É idempotente para a mesma instância na mesma app;
-- Não armazena `app`, não acessa rede e não registra rotas.
+```python
+extension.register_routes(app)
+```
 
-### `acquire_token(scopes=None, *, force_refresh=False) -> str`
+Registra login, callback e logout quando a aplicação opta por desabilitar o registro automático. A operação é idempotente e rejeita colisão de nome de blueprint.
 
-Adquire silenciosamente um access token delegado para `current_identity`.
+### Login
 
-- Exige contexto de requisição e identidade autenticada;
-- Usa scopes configurados quando `scopes` é `None`;
-- Localiza conta pelo `home_account_id`;
-- Carrega e persiste cache MSAL por conta;
-- Retorna token somente ao código servidor;
-- Não adiciona token à identidade nem ao cookie Flask.
+```python
+auth_uri = extension.begin_login(next_url="/painel", scopes=["User.Read"])
+```
 
-Pode gerar `AuthenticationRequired`, `ConsentRequired`, `StorageError`, `TokenAcquisitionError` ou `ProviderUnavailableError`.
+Valida o destino, cria e persiste o fluxo e retorna somente a URL segura do provedor.
+
+```python
+result = extension.complete_login(request.args.to_dict(flat=True))
+```
+
+Consome o fluxo pendente, valida callback, persiste a identidade e retorna `LoginResult(identity, next_url)`.
+
+### Logout
+
+```python
+redirect_uri = extension.logout()
+```
+
+Remove fluxo pendente, identidade e token cache da sessão atual. Retorna o destino pós-logout configurado.
+
+### Proteção de endpoints
+
+```python
+@extension.login_required
+def view(): ...
+
+@extension.login_required(on_missing="raise")
+def api_view(): ...
+```
+
+`on_missing` aceita `redirect` ou `raise`. Métodos não seguros nunca são convertidos em redirect.
+
+### Aquisição silenciosa
+
+```python
+access_token = extension.acquire_token(["User.Read"], force_refresh=False)
+```
+
+Usa `current_identity` e token cache server-side. O token é retornado ao código servidor e não é persistido na identidade.
 
 ## `Identity`
 
-```python
-identity = Identity.from_claims(
-    claims,
-    home_account_id="...",
-    expected_tenant_id="...",
-)
-```
+Modelo congelado e profundamente imutável. Campos principais:
 
-Campos:
-
-- `object_id: str`;
-- `tenant_id: str`;
-- `home_account_id: str`;
-- `subject: str | None`;
-- `display_name: str | None`;
-- `username: str | None`;
-- `claims: Mapping[str, object]` somente leitura;
-- `stable_id -> tuple[str, str]`.
-
-`Identity` é congelada, não expõe claims em `repr` e rejeita access token, refresh token, ID token bruto, client secret e token cache.
+- `object_id`;
+- `tenant_id`;
+- `subject`;
+- `home_account_id`;
+- `display_name`;
+- `username`;
+- `claims`;
+- `stable_id` como `(tenant_id, object_id)`.
 
 ## `current_identity`
 
-Proxy Flask para a identidade da requisição. Falha explicitamente:
+Proxy de contexto Flask. Fora de requisição, sem extensão ou sem identidade autenticada, falha explicitamente.
 
-- Fora de request context;
-- Quando a extensão não está inicializada;
-- Quando não existe identidade autenticada.
+## `LoginResult`
 
-A API pública não oferece vinculação manual da identidade. Essa integração é interna e será acionada pelo callback futuro.
+Resultado imutável do callback:
 
-## Storage
+```python
+result.identity
+result.next_url
+```
 
-`AuthStorage` e `MemoryStorage` mantêm o contrato da ETAPA 02. O cache MSAL usa o mesmo storage namespaced.
-
-## Erros públicos
+## Erros
 
 ```text
 MicrosoftEntraAuthError
@@ -109,19 +106,13 @@ MicrosoftEntraAuthError
 ├── StorageError
 ├── AuthenticationError
 │   ├── AuthenticationRequired
+│   ├── AuthenticationCancelled
+│   ├── InvalidCallbackError
+│   ├── InvalidNavigationTarget
 │   ├── IdentityValidationError
 │   └── ConsentRequired
 ├── TokenAcquisitionError
 └── ProviderUnavailableError
 ```
 
-`TokenAcquisitionError` pode expor `code` e `correlation_id` quando esses valores passam pela sanitização da extensão. Descrições brutas do provedor não são copiadas.
-
-## API ainda planejada
-
-- `register_routes`;
-- `begin_login` e `complete_login`;
-- Callback e persistência de fluxo;
-- Logout;
-- `login_required`;
-- Hooks.
+O blueprint pode converter esses erros em respostas sanitizadas. Com tratamento interno desativado, a aplicação pode tratá-los diretamente.

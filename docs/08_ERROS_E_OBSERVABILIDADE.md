@@ -1,6 +1,6 @@
 # Erros e observabilidade
 
-## Hierarquia
+## Hierarquia implementada
 
 ```text
 MicrosoftEntraAuthError
@@ -8,32 +8,37 @@ MicrosoftEntraAuthError
 ├── StorageError
 ├── AuthenticationError
 │   ├── AuthenticationRequired
+│   ├── AuthenticationCancelled
+│   ├── InvalidCallbackError
+│   ├── InvalidNavigationTarget
 │   ├── IdentityValidationError
 │   └── ConsentRequired
 ├── TokenAcquisitionError
 └── ProviderUnavailableError
 ```
 
-## Semântica
+## Respostas do blueprint
 
-- `AuthenticationRequired`: falta identidade ou conta MSAL correspondente;
-- `IdentityValidationError`: claims ou campos de identidade inválidos;
-- `ConsentRequired`: aquisição silenciosa não basta e interação será necessária;
-- `TokenAcquisitionError`: resultado MSAL inválido ou erro retornado pelo provedor;
-- `ProviderUnavailableError`: exceção inesperada ao construir ou usar cliente MSAL;
-- `StorageError`: falha de persistência, serialização ou cache corrompido.
+Com tratamento interno habilitado:
 
-`TokenAcquisitionError` pode expor `code` e `correlation_id` sanitizados. `error_description` e resposta bruta não são copiadas.
+|                                         Erro | HTTP |
+| -------------------------------------------: | ---- |
+| Cancelamento, callback ou navegação inválida | 400  |
+|                     Autenticação obrigatória | 401  |
+|                           Falha de aquisição | 502  |
+|             Provedor ou storage indisponível | 503  |
+|                        Configuração inválida | 500  |
+
+As respostas usam texto curto e não copiam detalhes internos. Com `MS_ENTRA_HANDLE_ROUTE_ERRORS=False`, as exceções são propagadas.
 
 ## Garantias
 
-- Client secret não aparece em representação;
-- `Identity.__repr__` não expõe PII ou claims;
-- Token, cache, chave e identificador de conta não aparecem em mensagens públicas;
-- Causas originais são preservadas apenas em `__cause__` para diagnóstico controlado;
-- `init_app()` falha antes de rede;
-- PII logging do MSAL permanece desativado.
+- Client secret, auth code, token, cache, claims completas e identifiers não entram em mensagens públicas;
+- `TokenAcquisitionError` expõe apenas `code` e `correlation_id` sanitizados;
+- Causas originais ficam em `__cause__` para diagnóstico controlado;
+- PII logging do MSAL permanece desligado;
+- Callback duplicado ou consumido falha previsivelmente.
 
 ## Observabilidade futura
 
-Eventos estruturados ainda não foram implementados. Permanecem planejados: autenticação iniciada, sucesso, cancelamento, rejeição, cache hit/miss, refresh, logout e falha de storage.
+Eventos estruturados e hooks ainda não foram implementados. Permanecem planejados para ETAPA 07 e hardening.

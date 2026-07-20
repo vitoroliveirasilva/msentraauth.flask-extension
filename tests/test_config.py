@@ -176,9 +176,7 @@ def test_http_redirect_is_rejected_outside_loopback() -> None:
         "https://app.example.com/auth/callback?source=entra",
     ],
 )
-def test_https_and_loopback_development_redirects_are_accepted(
-    redirect_uri: str,
-) -> None:
+def test_https_and_loopback_development_redirects_are_accepted(redirect_uri: str) -> None:
     app = create_app(MS_ENTRA_REDIRECT_URI=redirect_uri)
 
     MicrosoftEntraAuth().init_app(app)
@@ -247,14 +245,8 @@ def test_scope_generator_is_materialized_for_reuse_across_apps() -> None:
     extension.init_app(first_app)
     extension.init_app(second_app)
 
-    assert first_app.extensions["ms_entra_auth"].config.scopes == (
-        "User.Read",
-        "Mail.Read",
-    )
-    assert second_app.extensions["ms_entra_auth"].config.scopes == (
-        "User.Read",
-        "Mail.Read",
-    )
+    assert first_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
+    assert second_app.extensions["ms_entra_auth"].config.scopes == ("User.Read", "Mail.Read")
 
 
 def test_default_session_namespace_is_stable_and_application_specific() -> None:
@@ -317,4 +309,151 @@ def test_token_cache_ttl_must_be_positive_integer(ttl: object) -> None:
     app = create_app(MS_ENTRA_TOKEN_CACHE_TTL=ttl)
 
     with pytest.raises(ConfigurationError, match="MS_ENTRA_TOKEN_CACHE_TTL"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+def test_web_configuration_defaults_are_safe() -> None:
+    app = create_app()
+
+    MicrosoftEntraAuth().init_app(app)
+
+    config = app.extensions["ms_entra_auth"].config
+    assert config.flow_ttl == 600
+    assert config.identity_ttl == 28_800
+    assert config.url_prefix == "/auth"
+    assert config.post_login_redirect_uri == "/"
+    assert config.post_logout_redirect_uri == "/"
+    assert config.allowed_next_hosts == ()
+    assert config.auto_register_routes is True
+    assert config.handle_route_errors is True
+    assert config.unauthenticated_mode == "redirect"
+
+
+def test_web_configuration_constructor_values_take_precedence() -> None:
+    app = create_app(
+        MS_ENTRA_FLOW_TTL=10,
+        MS_ENTRA_IDENTITY_TTL=20,
+        MS_ENTRA_URL_PREFIX="/from-app",
+        MS_ENTRA_ALLOWED_NEXT_HOSTS=["app.example.com"],
+        MS_ENTRA_POST_LOGIN_REDIRECT_URI="/from-app-login",
+        MS_ENTRA_POST_LOGOUT_REDIRECT_URI="/from-app-logout",
+        MS_ENTRA_AUTO_REGISTER_ROUTES=True,
+        MS_ENTRA_HANDLE_ROUTE_ERRORS=True,
+        MS_ENTRA_UNAUTHENTICATED_MODE="redirect",
+    )
+    hosts = ["EXAMPLE.COM:443", "example.com:443", "localhost:5000"]
+    extension = MicrosoftEntraAuth(
+        flow_ttl=30,
+        identity_ttl=40,
+        url_prefix="/custom/",
+        allowed_next_hosts=hosts,
+        post_login_redirect_uri="https://example.com:443/after-login",
+        post_logout_redirect_uri="http://localhost:5000/after-logout",
+        auto_register_routes=False,
+        handle_route_errors=False,
+        unauthenticated_mode="RAISE",
+    )
+    hosts.append("later.example.com")
+
+    extension.init_app(app)
+
+    config = app.extensions["ms_entra_auth"].config
+    assert config.flow_ttl == 30
+    assert config.identity_ttl == 40
+    assert config.url_prefix == "/custom"
+    assert config.allowed_next_hosts == ("example.com:443", "localhost:5000")
+    assert config.post_login_redirect_uri == "https://example.com:443/after-login"
+    assert config.post_logout_redirect_uri == "http://localhost:5000/after-logout"
+    assert config.auto_register_routes is False
+    assert config.handle_route_errors is False
+    assert config.unauthenticated_mode == "raise"
+
+
+@pytest.mark.parametrize("key", ["MS_ENTRA_FLOW_TTL", "MS_ENTRA_IDENTITY_TTL"])
+@pytest.mark.parametrize("value", [True, 0, -1, "600", 1.5])
+def test_web_ttls_must_be_positive_integers(key: str, value: object) -> None:
+    app = create_app()
+    app.config[key] = value
+
+    with pytest.raises(ConfigurationError, match=key):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["auth", "//auth", "/auth?x=1", "/auth#x", "/auth\\callback", "/"],
+)
+def test_url_prefix_must_be_safe_local_non_root_path(prefix: str) -> None:
+    app = create_app(MS_ENTRA_URL_PREFIX=prefix)
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_URL_PREFIX"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize("value", ["example.com", 123, object()])
+def test_allowed_next_hosts_must_be_non_string_iterable(value: object) -> None:
+    app = create_app(MS_ENTRA_ALLOWED_NEXT_HOSTS=value)
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_ALLOWED_NEXT_HOSTS"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["", "https://example.com", "user@example.com", "example.com/path", "[invalid", "x:bad"],
+)
+def test_allowed_next_host_entries_must_be_plain_hosts(host: str) -> None:
+    app = create_app(MS_ENTRA_ALLOWED_NEXT_HOSTS=[host])
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_ALLOWED_NEXT_HOSTS"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "match"),
+    [
+        ("MS_ENTRA_POST_LOGIN_REDIRECT_URI", "relative", "safe local path"),
+        ("MS_ENTRA_POST_LOGIN_REDIRECT_URI", "//evil.example.com", "allowed host"),
+        ("MS_ENTRA_POST_LOGOUT_REDIRECT_URI", "/safe#fragment", "safe local path"),
+        ("MS_ENTRA_POST_LOGOUT_REDIRECT_URI", "/safe\\path", "safe local path"),
+        ("MS_ENTRA_POST_LOGIN_REDIRECT_URI", "https://evil.example.com/x", "allowed host"),
+        ("MS_ENTRA_POST_LOGIN_REDIRECT_URI", "http://example.com/x", "allowed host"),
+        ("MS_ENTRA_POST_LOGIN_REDIRECT_URI", "https://[invalid", "safe redirect URI"),
+    ],
+)
+def test_configured_navigation_targets_are_validated(key: str, value: str, match: str) -> None:
+    app = create_app(**{key: value})
+
+    with pytest.raises(ConfigurationError, match=match):
+        MicrosoftEntraAuth().init_app(app)
+
+
+def test_external_navigation_target_requires_https_outside_loopback() -> None:
+    app = create_app(
+        MS_ENTRA_ALLOWED_NEXT_HOSTS=["example.com"],
+        MS_ENTRA_POST_LOGIN_REDIRECT_URI="http://example.com/after",
+    )
+
+    with pytest.raises(ConfigurationError, match="HTTPS outside loopback"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize("key", ["MS_ENTRA_AUTO_REGISTER_ROUTES", "MS_ENTRA_HANDLE_ROUTE_ERRORS"])
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+def test_web_flags_must_be_booleans(key: str, value: object) -> None:
+    app = create_app()
+    app.config[key] = value
+
+    if value is None:
+        MicrosoftEntraAuth().init_app(app)
+        return
+    with pytest.raises(ConfigurationError, match=key):
+        MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize("value", [123, "", "unknown", "redirect-now"])
+def test_unauthenticated_mode_is_validated(value: object) -> None:
+    app = create_app(MS_ENTRA_UNAUTHENTICATED_MODE=value)
+
+    with pytest.raises(ConfigurationError, match="MS_ENTRA_UNAUTHENTICATED_MODE"):
         MicrosoftEntraAuth().init_app(app)

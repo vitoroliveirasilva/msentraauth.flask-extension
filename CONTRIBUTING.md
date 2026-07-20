@@ -80,3 +80,13 @@ Todo backend deve implementar `load`, `save` e `delete` conforme `AuthStorage`. 
 
 - `dev`: desenvolvimento e integração;
 - `prod`: estado considerado estável.
+
+## Fluxo web e rotas
+
+- Fluxos interativos devem permanecer server-side e com TTL;
+- Callback deve consumir a transação antes da redenção;
+- State, destinos e campos duplicados exigem testes de falha;
+- Auth code, token, claims e cache não podem entrar em cookie ou log;
+- Rotas de alteração de estado não devem redirecionar usuários anônimos;
+- Logout padrão permanece `POST` e limitado à sessão atual;
+- Testes de fluxo usam cliente MSAL falso e não acessam rede.

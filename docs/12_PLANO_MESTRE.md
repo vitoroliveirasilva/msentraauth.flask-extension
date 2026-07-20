@@ -20,11 +20,11 @@ Modelo imutável, claims, tenant, contexto request-local e `current_identity`.
 
 Cliente confidencial lazy, `SerializableTokenCache`, seleção de conta, aquisição silenciosa, sanitização e persistência por conta.
 
-## Etapa 05: fluxo web
+## Etapa 05: fluxo web (Concluída)
 
 Login, callback, state, nonce, cancelamento, replay, next URL, criação/restauração da identidade e persistência do fluxo.
 
-## Etapa 06: rotas e decorator
+## Etapa 06: rotas e decorator (Concluída)
 
 Blueprint opcional, `login_required`, logout e tratamento configurável.
 

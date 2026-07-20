@@ -2,6 +2,7 @@ from importlib.metadata import version
 
 import flask_ms_entra_auth
 from flask_ms_entra_auth import (
+    AuthenticationCancelled,
     AuthenticationError,
     AuthenticationRequired,
     AuthStorage,
@@ -9,6 +10,9 @@ from flask_ms_entra_auth import (
     ConsentRequired,
     Identity,
     IdentityValidationError,
+    InvalidCallbackError,
+    InvalidNavigationTarget,
+    LoginResult,
     MemoryStorage,
     MicrosoftEntraAuth,
     MicrosoftEntraAuthError,
@@ -27,12 +31,16 @@ def test_package_can_be_imported() -> None:
 def test_public_symbols_are_exported() -> None:
     expected = {
         "AuthStorage": AuthStorage,
+        "AuthenticationCancelled": AuthenticationCancelled,
         "AuthenticationError": AuthenticationError,
         "AuthenticationRequired": AuthenticationRequired,
         "ConfigurationError": ConfigurationError,
         "ConsentRequired": ConsentRequired,
         "Identity": Identity,
         "IdentityValidationError": IdentityValidationError,
+        "InvalidCallbackError": InvalidCallbackError,
+        "InvalidNavigationTarget": InvalidNavigationTarget,
+        "LoginResult": LoginResult,
         "MemoryStorage": MemoryStorage,
         "MicrosoftEntraAuth": MicrosoftEntraAuth,
         "MicrosoftEntraAuthError": MicrosoftEntraAuthError,
@@ -56,7 +64,14 @@ def test_public_errors_inherit_from_public_base_error() -> None:
         TokenAcquisitionError,
     ):
         assert issubclass(error, MicrosoftEntraAuthError)
-    for error in (AuthenticationRequired, ConsentRequired, IdentityValidationError):
+    for error in (
+        AuthenticationCancelled,
+        AuthenticationRequired,
+        ConsentRequired,
+        IdentityValidationError,
+        InvalidCallbackError,
+        InvalidNavigationTarget,
+    ):
         assert issubclass(error, AuthenticationError)
 
 
