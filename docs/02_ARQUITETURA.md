@@ -1,6 +1,6 @@
 # Arquitetura
 
-## Estado atual: ETAPAS 05 e 06
+## Estado atual: ETAPAS 07 e 08
 
 ```text
 Aplicação Flask
@@ -8,111 +8,45 @@ Aplicação Flask
       v
 MicrosoftEntraAuth.init_app(app)
       |
-      +-- Configuração imutável
+      +-- Configuração validada e imutável
       +-- Storage namespaced
-      +-- MsalService lazy
-      +-- AuthCodeFlowService
-      +-- WebSessionManager
-      +-- before_request de restauração
+      +-- Auditoria de postura
+      +-- Serviços MSAL e fluxo lazy
+      +-- Observabilidade por aplicação
       +-- Blueprint opcional
       |
       v
 app.extensions["ms_entra_auth"]
-
-GET /auth/login
-      |
-      +-- Valida next
-      +-- Cria state
-      +-- Inicia fluxo MSAL
-      +-- Persiste fluxo server-side
-      v
-Microsoft Entra ID
-      |
-GET /auth/callback
-      |
-      +-- Consome referência e fluxo uma vez
-      +-- Valida state e resposta MSAL
-      +-- Valida tenant e conta
-      +-- Persiste Identity server-side
-      v
-Cookie Flask contém apenas session_id aleatório
-
-Requisições seguintes
-      |
-      +-- before_request restaura Identity
-      +-- current_identity request-local
-      +-- login_required protege endpoints
 ```
 
-## Pacote atual
+## Fronteiras
 
-```text
-src/flask_ms_entra_auth/
-├── __init__.py
-├── _version.py
-├── config.py
-├── context.py
-├── errors.py
-├── extension.py
-├── identity.py
-├── py.typed
-├── auth/
-│   ├── __init__.py
-│   ├── client.py
-│   ├── flow.py
-│   ├── protocols.py
-│   ├── service.py
-│   └── token_cache.py
-├── storage/
-│   ├── __init__.py
-│   ├── base.py
-│   ├── memory.py
-│   ├── namespaced.py
-│   └── validation.py
-└── web/
-    ├── __init__.py
-    ├── models.py
-    ├── routes.py
-    ├── session.py
-    └── urls.py
-```
+- `config.py`: resolução e validação;
+- `storage/`: contrato mínimo, consumo atômico opcional, namespace e TTL;
+- `identity.py` e `context.py`: identidade imutável e request-local;
+- `auth/`: cliente MSAL, token cache e Authorization Code Flow;
+- `web/`: sessão, navegação, blueprint e respostas;
+- `hooks.py`: callbacks ordenados e thread-safe;
+- `observability.py`: eventos e logging sanitizados;
+- `security.py`: auditoria somente leitura;
+- `extension.py`: composição e API pública.
 
-## Responsabilidades
+## Hooks
 
-### `MicrosoftEntraAuth`
+A instância `MicrosoftEntraAuth` mantém um registro ordenado de hooks. A mesma instância pode inicializar múltiplas aplicações, portanto os hooks são compartilhados entre essas aplicações. Estado de usuário não é armazenado no registro.
 
-Compõe dependências por aplicação, registra rotas opcionais, inicia e completa login, executa logout local, oferece aquisição silenciosa e o decorator `login_required`. A instância nunca guarda `app`.
+O vínculo local ocorre antes de estabelecer a sessão. Logout ocorre antes de executar seu hook. Hooks de erro e evento são best effort e não mudam o resultado principal.
 
-### `AuthCodeFlowService`
+## Concorrência
 
-Orquestra o dicionário de Authorization Code Flow produzido pelo MSAL. Fluxo e state são persistidos no servidor com TTL. O fluxo é apagado antes da redenção do código para garantir consumo único.
+`MemoryStorage` usa lock local. `AtomicAuthStorage.take()` representa consumo único nativo no backend. O adaptador namespaced oferece fallback local para compatibilidade, mas não promete atomicidade entre processos.
 
-### `WebSessionManager`
+Fluxo e identidade usam `take()` quando disponível. Token cache permanece last-write-wins. CAS, versionamento ou locks distribuídos continuam fora do contrato.
 
-Mantém no cookie Flask somente referências aleatórias. Fluxos, identidades e caches ficam no `AuthStorage`. Também restaura a identidade no início de cada requisição e limpa exclusivamente o estado da extensão no logout.
+## Observabilidade
 
-### Blueprint
+Cada aplicação possui `Observability` próprio e usa o registro de hooks da extensão. Request ID é request-local. Os eventos não contêm objetos de identidade nem payloads do provedor.
 
-O blueprint interno fornece login, callback e logout. É registrado automaticamente por padrão, pode usar prefixo customizado e pode ser desativado para aplicações com rotas próprias.
+## Segurança
 
-### `login_required`
-
-Consulta `current_identity`. Em métodos seguros pode redirecionar para login. Em métodos de alteração de estado sempre falha explicitamente, evitando transformação silenciosa de uma operação em navegação.
-
-## Estado por camada
-
-- Por aplicação: configuração, storage, serviços e flags em `app.extensions`;
-- Por navegador: referências mínimas no cookie Flask assinado;
-- Por fluxo: dicionário MSAL e destino no storage com TTL curto;
-- Por sessão autenticada: identidade no storage com TTL de sessão;
-- Por requisição: `current_identity` no contexto Flask;
-- Por conta: `SerializableTokenCache` no storage;
-- Proibido: `self.app`, usuário global, token global, auth code em cookie ou refresh token manipulado manualmente.
-
-## Rede
-
-`init_app()` não cria cliente MSAL nem acessa rede. A rede pode ocorrer somente ao iniciar/completar fluxo ou adquirir token. Testes usam fábrica injetável e não acessam provedor real.
-
-## Fronteiras futuras
-
-Hooks pertencem à ETAPA 07. Hardening distribuído e revisão de ameaça pertencem à ETAPA 08. Template, Redis e Graph pertencem à ETAPA 09.
+`audit_security()` inspeciona configuração Flask e capacidades do backend, sem alterar a aplicação. O modo estrito bloqueia somente achados de severidade `error`.

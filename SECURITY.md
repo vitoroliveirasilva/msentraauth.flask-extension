@@ -1,21 +1,34 @@
 # Política de segurança
 
-Não abra issue pública para vulnerabilidades. Nesse caso, use reporte privado do GitHub quando disponível ou canal privado do mantenedor.
-
+- Não abra issue pública para vulnerabilidades. Nesse caso, use reporte privado do GitHub quando disponível ou canal privado do mantenedor;
 - Inclua versão ou commit, cenário, impacto, passos, evidências sanitizadas e sugestão de correção;
-- Nunca envie client secret, auth code, access token, refresh token, cookie, cache, chave de storage, identificador de sessão ou claims reais;
-- O escopo prioritário inclui configuração, authority, redirect URI, state, nonce, callback, replay, open redirect, cookie, sessão, namespace, TTL, identidade, seleção de conta e supply chain;
-- O cookie da extensão deve conter somente referências aleatórias;
-- Fluxos devem ser consumidos uma única vez e expirar;
-- Destinos externos exigem allowlist exata;
-- Logout padrão usa `POST` e não promete logout global Microsoft;
-- `Identity` não contém credenciais e username/email não são chave de autorização;
-- PII logging do MSAL permanece desligado;
-- Refresh tokens são responsabilidade exclusiva do MSAL;
-- Mensagens públicas não incluem token, auth code, cache, claims completas, client secret, resposta bruta do provedor ou erro de backend;
-- `MemoryStorage` não deve ser usado em produção;
-- Backends externos devem usar TLS quando aplicável, menor privilégio, expiração e proteção em repouso;
-- A aplicação é responsável por `SECRET_KEY`, HTTPS, flags de cookie, CSRF, proxy, rate limit e autorização;
-- Bandit e pip-audit não substituem revisão manual.
+- Nunca envie client secret, access token, refresh token, auth code, cookie, cache, claims completas, chave de storage, identificador de sessão ou dados pessoais reais.
 
-A Licença [MIT](LICENSE) não representa garantia de segurança.
+## Escopo prioritário
+
+- State, callback, replay e open redirect;
+- Isolamento entre aplicações, sessões e contas;
+- Atomicidade de consumo em múltiplos workers;
+- Token cache e falhas de storage;
+- Hooks de vínculo e rejeição local;
+- Vazamento em logs, eventos e mensagens públicas;
+- Flags de cookie, secret de sessão e configuração insegura;
+- Dependências, build e artefatos publicados.
+
+## Garantias da biblioteca
+
+- Tokens e auth code permanecem server-side;
+- `Identity` não contém credenciais;
+- Eventos são sanitizados;
+- PII logging do MSAL permanece desativado;
+- Erros previsíveis possuem mensagens públicas controladas;
+- Fluxos e identidades usam consumo atômico quando o backend oferece `AtomicAuthStorage`;
+- A auditoria não lê nem imprime valores de secrets.
+
+## Responsabilidade da aplicação
+
+Produção exige HTTPS, secret forte, cookies seguros, CSRF, proxy confiável, rate limiting, storage compartilhado, menor privilégio, proteção em repouso, disponibilidade e autorização de domínio.
+
+`MemoryStorage` não deve ser usado em produção. Em múltiplos workers, configure backend atômico e `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True`.
+
+Consulte [`docs/17_THREAT_MODEL.md`](docs/17_THREAT_MODEL.md).

@@ -2,15 +2,17 @@
 
 ## Segurança
 
-- O cookie Flask contém somente referências aleatórias, nunca identidade, auth code ou token;
-- Fluxos são removidos antes da troca do código, impedindo replay do mesmo callback;
-- Callback rejeita campos duplicados, state inconsistente e estruturas excessivas;
-- Destinos de navegação são validados contra open redirect;
-- Logout usa `POST` e remove somente o estado da sessão atual;
-- Erros das rotas são sanitizados e não copiam detalhes internos.
+- Backends distribuídos podem garantir consumo único sem janela entre `load()` e `delete()`;
+- `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True` impede inicialização com backend sem garantia nativa;
+- `MS_ENTRA_STRICT_SECURITY=True` bloqueia achados de severidade `error`;
+- Auditoria verifica segredo de sessão, flags de cookie, storage em memória e consumo atômico;
+- Eventos e logs não incluem tokens, auth code, claims, client secret, chave de storage ou payload bruto;
+- Falhas de hooks de erro e evento nunca substituem o comportamento original;
+- Rejeição pelo sistema local ocorre antes da persistência da identidade no navegador.
 
 ## Limites
 
-- Hooks públicos, vínculo automático com usuário local e hardening distribuído permanecem fora desta versão;
-- `MemoryStorage` continua inadequado para produção;
-- Logout local não encerra todas as sessões Microsoft.
+- `MemoryStorage` continua inadequado para produção e não compartilha estado entre processos;
+- A política do token cache continua last-write-wins, sem CAS distribuído;
+- Hooks não implementam autorização, transação de banco ou rollback automático;
+- Redis oficial, template consumidor, Graph e publicação permanecem fora desta versão.

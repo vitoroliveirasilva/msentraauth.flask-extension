@@ -10,6 +10,8 @@ from msal import SerializableTokenCache  # type: ignore[import-untyped]
 
 from flask_ms_entra_auth import (
     AuthenticationRequired,
+    AuthEvent,
+    Identity,
     InvalidCallbackError,
     MemoryStorage,
     MicrosoftEntraAuth,
@@ -463,3 +465,147 @@ def test_logout_discards_pending_flow_without_identity() -> None:
         manager.set_pending_flow(flow_id)
         assert extension.logout() == "/"
         assert state.storage.load(f"flow:{flow_id}") is None
+
+
+def test_extension_hook_decorators_integrate_with_login_logout_errors_and_events() -> None:
+    app, extension, _ = make_app()
+    client = app.test_client()
+    calls: list[str] = []
+
+    @extension.on_authenticated
+    def authenticated(identity: Identity) -> None:
+        calls.append(f"authenticated:{identity.object_id}")
+
+    @extension.on_logout
+    def logged_out(identity: Identity | None) -> None:
+        calls.append(f"logout:{identity.object_id if identity else None}")
+
+    @extension.on_error
+    def errored(error: object) -> None:
+        calls.append(f"error:{type(error).__name__}")
+
+    @extension.on_event
+    def evented(event: AuthEvent) -> None:
+        calls.append(f"event:{event.name}")
+
+    _, state = begin_browser_login(client)
+    complete_browser_login(client, state)
+    assert client.post("/auth/logout").status_code == 302
+    assert client.get("/auth/callback").status_code == 400
+
+    assert calls[:3] == [
+        "event:authentication_started",
+        "authenticated:object-id",
+        "event:authentication_succeeded",
+    ]
+    assert "logout:object-id" in calls
+    assert "event:logout_completed" in calls
+    assert "error:InvalidCallbackError" in calls
+    assert "event:authentication_error" in calls
+
+
+def test_authenticated_hook_rejection_prevents_session_and_cleans_token_cache() -> None:
+    from flask_ms_entra_auth import AuthenticationRejected
+
+    app, extension, _ = make_app(handle_errors=True)
+    client = app.test_client()
+
+    @extension.on_authenticated
+    def reject(identity: Identity) -> None:
+        del identity
+        raise AuthenticationRejected("disabled locally")
+
+    _, state = begin_browser_login(client)
+    response = client.get("/auth/callback", query_string={"code": "code", "state": state})
+    assert response.status_code == 403
+    assert response.text == "Authentication was rejected by the application."
+
+    storage = app.extensions["ms_entra_auth"].storage
+    assert storage.load(token_cache_key("home-id")) is None
+    manager = app.extensions["ms_entra_auth"].web_session
+    with client.session_transaction() as browser_session:
+        assert manager.session_key not in browser_session
+
+
+def test_cleanup_storage_failure_is_reported_without_replacing_hook_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flask_ms_entra_auth import AuthenticationRejected, StorageError
+
+    app, extension, _ = make_app(handle_errors=False)
+    client = app.test_client()
+    errors: list[str] = []
+    extension.on_error(lambda error: errors.append(type(error).__name__))
+
+    @extension.on_authenticated
+    def reject(identity: Identity) -> None:
+        del identity
+        raise AuthenticationRejected("disabled locally")
+
+    def fail_cleanup(storage: object, home_account_id: str) -> None:
+        del storage, home_account_id
+        raise StorageError("cleanup failed")
+
+    monkeypatch.setattr("flask_ms_entra_auth.extension.delete_token_cache", fail_cleanup)
+    _, state = begin_browser_login(client)
+    with pytest.raises(AuthenticationRejected):
+        client.get("/auth/callback", query_string={"code": "code", "state": state})
+
+    assert errors == ["StorageError", "AuthenticationRejected"]
+
+
+def test_logout_hook_failure_occurs_after_authentication_state_is_cleared() -> None:
+    app, extension, _ = make_app(handle_errors=True)
+    client = app.test_client()
+
+    @extension.on_logout
+    def broken(identity: Identity | None) -> None:
+        assert identity is not None
+        raise RuntimeError("private database failure")
+
+    _, state = begin_browser_login(client)
+    complete_browser_login(client, state)
+
+    response = client.post("/auth/logout")
+    assert response.status_code == 503
+    assert response.text == "Authentication service is temporarily unavailable."
+
+    manager = app.extensions["ms_entra_auth"].web_session
+    with client.session_transaction() as browser_session:
+        assert manager.session_key not in browser_session
+
+
+@pytest.mark.parametrize("handle_errors", [True, False])
+def test_before_request_storage_failure_is_sanitized_or_propagated(
+    handle_errors: bool,
+) -> None:
+    from flask_ms_entra_auth import StorageError
+
+    class RestoreFailingStorage(MemoryStorage):
+        fail_load = False
+
+        def load(self, key: str) -> bytes | None:
+            if self.fail_load and ":identity:" in key:
+                raise StorageError("restore failed")
+            return super().load(key)
+
+    backend = RestoreFailingStorage()
+    app, extension, _ = make_app(storage=backend, handle_errors=handle_errors)
+    add_protected_routes(app, extension)
+    client = app.test_client()
+    errors: list[str] = []
+    extension.on_error(lambda error: errors.append(type(error).__name__))
+
+    _, state = begin_browser_login(client)
+    complete_browser_login(client, state)
+    backend.fail_load = True
+
+    if handle_errors:
+        response = client.get("/protected")
+        assert response.status_code == 503
+        assert response.text == "Authentication service is temporarily unavailable."
+    else:
+        with pytest.raises(StorageError, match="restore failed"):
+            client.get("/protected")
+
+    assert errors == ["StorageError"]

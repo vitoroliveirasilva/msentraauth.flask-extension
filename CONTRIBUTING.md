@@ -1,6 +1,8 @@
 # Contribuindo
 
-## Ambiente
+## Instalação para desenvolvimento
+
+Requer Python 3.11 ou superior.
 
 ```bash
 python -m venv .venv
@@ -12,8 +14,8 @@ python -m pip install -e ".[dev]"
 No PowerShell:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+python -m venv venv
+venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
@@ -32,61 +34,37 @@ python -m twine check dist/*
 DIST_DIR=dist pytest tests/test_distribution.py --no-cov
 ```
 
-No PowerShell:
-
-```powershell
-$env:DIST_DIR = "dist"
-pytest tests/test_distribution.py --no-cov
-Remove-Item Env:DIST_DIR
-```
-
 ## Padrões
 
-- Código tipado e mypy em modo estrito;
+- Python 3.11 ou superior;
+- Tipagem estrita e API pública documentada;
 - Application factory e estado por aplicação em `app.extensions`;
-- Estado por requisição somente no contexto Flask;
-- Nenhuma aplicação armazenada permanentemente em `self.app`;
-- Nenhuma credencial, token, cache ou claim real em código, teste ou log;
-- Testes de sucesso, falha, isolamento e sanitização;
-- API pública documentada;
-- Nomes públicos em inglês e documentação em português;
-- Changelog e status atualizados no mesmo conjunto de mudanças.
+- Estado por usuário somente no storage e no contexto de requisição;
+- Nenhuma credencial, claim real, token, auth code ou chave de storage em teste ou log;
+- Testes de sucesso, falha, isolamento, concorrência e sanitização;
+- Changelog, ADRs e status atualizados no mesmo conjunto de mudanças.
 
-## Identidade
+## Hooks
 
-- `Identity` deve permanecer imutável e sem credenciais;
-- `tenant_id` e `object_id` formam a identidade estável;
-- Email, username e display name são apenas apresentação;
-- Claims devem ser JSON-compatible e somente leitura;
-- Access token, refresh token, client secret, token cache e ID token bruto são proibidos em `Identity`;
-- Alterações no contrato público exigem testes e documentação.
+- `on_authenticated` roda antes da sessão local e pode rejeitar com `AuthenticationRejected`;
+- Falhas inesperadas de vínculo viram `LocalBindingError`;
+- `on_logout` roda depois da limpeza local;
+- `on_error` e `on_event` nunca podem substituir o comportamento original;
+- Hooks são registrados na instância da extensão e compartilhados pelas aplicações inicializadas por essa mesma instância;
+- Hooks não devem retornar secrets, mutar `Identity` ou implementar autorização implícita.
 
-## MSAL e token cache
+## Observabilidade
 
-- OAuth, OIDC, refresh e cache de tokens pertencem ao MSAL;
-- Use somente `SerializableTokenCache` para serialização;
-- Não leia, altere ou persista refresh tokens diretamente;
-- O cliente MSAL deve continuar lazy e não pode ser criado em `init_app()`;
-- Testes não podem acessar rede e devem injetar uma fábrica de cliente;
-- Cache persistente deve ser isolado por aplicação e conta;
-- Erros do provedor não podem copiar `error_description`, token ou resposta bruta;
-- Tokens retornados existem apenas no servidor.
+Eventos públicos devem permanecer pequenos e sanitizados. Alterações em `AuthEvent` exigem revisão de privacidade, testes de logging e atualização do threat model.
+
+É proibido registrar client secret, Authorization, cookie, auth code, tokens, cache, claims completas, query string completa do callback ou chaves de storage.
 
 ## Storage
 
-Todo backend deve implementar `load`, `save` e `delete` conforme `AuthStorage`. `MemoryStorage` existe apenas para desenvolvimento e testes. Backends de produção devem considerar TLS, menor privilégio, expiração, proteção em repouso, múltiplos workers e indisponibilidade.
+Todo backend implementa `AuthStorage`. Backends que prometem consumo único distribuído implementam também `AtomicAuthStorage.take()` como operação realmente atômica no serviço de persistência.
 
-## Branches
+Não declare suporte atômico quando a implementação fizer `load()` seguido de `delete()`. A estratégia do token cache continua last-write-wins; CAS exige ADR próprio.
 
-- `dev`: desenvolvimento e integração;
-- `prod`: estado considerado estável.
+## Segurança
 
-## Fluxo web e rotas
-
-- Fluxos interativos devem permanecer server-side e com TTL;
-- Callback deve consumir a transação antes da redenção;
-- State, destinos e campos duplicados exigem testes de falha;
-- Auth code, token, claims e cache não podem entrar em cookie ou log;
-- Rotas de alteração de estado não devem redirecionar usuários anônimos;
-- Logout padrão permanece `POST` e limitado à sessão atual;
-- Testes de fluxo usam cliente MSAL falso e não acessam rede.
+Novos controles devem ser verificáveis sem ler ou exibir valores sensíveis. Achados do `audit_security()` possuem código estável, severidade e mensagem sanitizada. Alterar severidade pode afetar `MS_ENTRA_STRICT_SECURITY` e exige nota de compatibilidade.

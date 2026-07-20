@@ -68,7 +68,10 @@ def test_secure_session_is_required_before_web_authentication() -> None:
     app, _ = create_app(secret_key=None)
     manager: WebSessionManager = state_for(app).web_session
 
-    with app.test_request_context("/"), pytest.raises(ConfigurationError, match="SECRET_KEY"):
+    with (
+        app.test_request_context("/"),
+        pytest.raises(ConfigurationError, match="SECRET_KEY"),
+    ):
         manager.require_secure_session()
 
 
@@ -291,7 +294,9 @@ def test_optional_stored_identity_fields_must_be_strings_when_present() -> None:
             manager.restore_identity()
 
 
-def test_identity_serialization_failure_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_identity_serialization_failure_is_wrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app, _ = create_app()
     manager: WebSessionManager = state_for(app).web_session
 
@@ -314,3 +319,50 @@ def test_thaw_json_value_handles_mapping_tuple_and_scalar() -> None:
 
     assert session_module._thaw_json_value(value) == {"items": [1, {"ok": True}]}
     assert session_module._thaw_json_value("value") == "value"
+
+
+class NonAtomicSessionStorage:
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def load(self, key: str) -> bytes | None:
+        return self.values.get(key)
+
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None:
+        del ttl
+        self.values[key] = value
+
+    def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.values.pop(key, None)
+
+
+def test_clear_authentication_supports_non_atomic_storage_compatibility_path() -> None:
+    app, _ = create_app()
+    config = state_for(app).config
+    storage = NonAtomicSessionStorage()
+    manager = WebSessionManager(config, storage)
+
+    with app.test_request_context("/"):
+        manager.establish_identity(identity())
+        metadata = dict(session[manager.session_key])
+        identity_key = session_module._identity_key(metadata["session_id"])
+
+        cleared = manager.clear_authentication()
+
+    assert cleared is not None
+    assert cleared.object_id == "object-id"
+    assert storage.deleted[-1] == identity_key
+
+
+def test_non_atomic_clear_without_identity_payload_does_not_delete() -> None:
+    app, _ = create_app()
+    storage = NonAtomicSessionStorage()
+    manager = WebSessionManager(state_for(app).config, storage)
+
+    with app.test_request_context("/"):
+        session[manager.session_key] = {"session_id": "missing-payload"}
+        assert manager.clear_authentication() is None
+
+    assert storage.deleted == []

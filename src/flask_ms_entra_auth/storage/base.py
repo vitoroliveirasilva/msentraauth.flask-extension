@@ -18,3 +18,12 @@ class AuthStorage(Protocol):
     def delete(self, key: str) -> None:
         # Remove um valor sem falhar quando ele já está ausente
         ...
+
+
+@runtime_checkable
+class AtomicAuthStorage(AuthStorage, Protocol):
+    # Capacidade de armazenamento opcional para consumo atômico único
+
+    def take(self, key: str) -> bytes | None:
+        # Retorna e remove atomicamente um valor quando presente
+        ...

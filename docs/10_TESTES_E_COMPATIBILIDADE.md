@@ -7,23 +7,20 @@
 - Flask: série `3.1.x`;
 - MSAL: série `1.x`, mínimo `1.37`.
 
-## Cobertura das ETAPAS 05 e 06
+## Cobertura das ETAPAS 07 e 08
 
-- Início de fluxo, scopes, state e TTL;
-- Fluxos MSAL inválidos e hosts inesperados;
-- Callback válido, cancelado, corrompido, duplicado e replay;
-- Conta ausente, ambígua ou de tenant divergente;
-- Persistência e rotação da identidade;
-- Cookie sem auth code, claims ou token;
-- Restauração request-local;
-- Login, callback e logout pelo blueprint;
-- Rotas automáticas, manuais e prefixo customizado;
-- `login_required` nos modos redirect e raise;
-- Métodos não seguros sem redirect;
-- Next URL local, allowlist e rejeição de open redirect;
-- Tratamento de erros habilitado e propagado;
-- Logout preservando dados alheios da sessão;
-- Integração completa sem rede com cliente MSAL falso.
+- Ordem, idempotência e isolamento de hooks;
+- Rejeição local e falha de vínculo;
+- Logout com limpeza anterior ao hook;
+- Hooks de erro e evento que não mascaram resultados;
+- Eventos imutáveis e logging sanitizado;
+- Request ID válido, inválido e gerado;
+- Consumo atômico nativo e fallback local;
+- Falhas e retornos inválidos de backends;
+- Auditoria de secret, cookies, storage e loopback;
+- Modo estrito e exigência de backend atômico;
+- Integração com login, callback, restauração e logout;
+- Compatibilidade integral das etapas anteriores.
 
 ## Ferramentas
 
@@ -31,4 +28,4 @@ pytest, pytest-cov, Ruff, mypy estrito, Bandit, pip-audit, build e twine.
 
 ## Artefatos
 
-Wheel e sdist são inspecionados para confirmar módulos `auth.flow`, `web`, marcador `py.typed`, metadata, testes e documentação.
+Wheel e sdist devem conter hooks, observabilidade, auditoria, threat model, ADRs, testes e marcador `py.typed`.

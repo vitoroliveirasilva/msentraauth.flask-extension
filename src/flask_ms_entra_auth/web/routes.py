@@ -8,10 +8,13 @@ from flask.typing import ResponseReturnValue
 
 from ..errors import (
     AuthenticationCancelled,
+    AuthenticationRejected,
     AuthenticationRequired,
     ConfigurationError,
+    HookExecutionError,
     InvalidCallbackError,
     InvalidNavigationTarget,
+    LocalBindingError,
     MicrosoftEntraAuthError,
     ProviderUnavailableError,
     StorageError,
@@ -36,6 +39,7 @@ def create_auth_blueprint(
     def login() -> ResponseReturnValue:
         return _execute_route(
             lambda: redirect(extension.begin_login(next_url=_single_query_value("next"))),
+            extension=extension,
             handle_errors=config.handle_route_errors,
         )
 
@@ -45,12 +49,17 @@ def create_auth_blueprint(
             result = extension.complete_login(_single_value_query())
             return redirect(result.next_url)
 
-        return _execute_route(complete, handle_errors=config.handle_route_errors)
+        return _execute_route(
+            complete,
+            extension=extension,
+            handle_errors=config.handle_route_errors,
+        )
 
     @blueprint.post("/logout")
     def logout() -> ResponseReturnValue:
         return _execute_route(
             lambda: redirect(extension.logout()),
+            extension=extension,
             handle_errors=config.handle_route_errors,
         )
 
@@ -83,11 +92,13 @@ def _single_value_query() -> dict[str, str]:
 def _execute_route(
     operation: Callable[[], ResponseReturnValue],
     *,
+    extension: MicrosoftEntraAuth,
     handle_errors: bool,
 ) -> ResponseReturnValue:
     try:
         return operation()
     except MicrosoftEntraAuthError as exc:
+        extension._notify_error(exc)
         if not handle_errors:
             raise
         return _safe_error_response(exc)
@@ -103,11 +114,16 @@ def _error_status_and_message(error: MicrosoftEntraAuthError) -> tuple[int, str]
         return 400, "Authentication was cancelled."
     if isinstance(error, InvalidCallbackError | InvalidNavigationTarget):
         return 400, "Authentication request is invalid or expired."
+    if isinstance(error, AuthenticationRejected):
+        return 403, "Authentication was rejected by the application."
     if isinstance(error, AuthenticationRequired):
         return 401, "Authentication is required."
     if isinstance(error, TokenAcquisitionError):
         return 502, "Authentication could not be completed."
-    if isinstance(error, ProviderUnavailableError | StorageError):
+    if isinstance(
+        error,
+        ProviderUnavailableError | StorageError | LocalBindingError | HookExecutionError,
+    ):
         return 503, "Authentication service is temporarily unavailable."
     if isinstance(error, ConfigurationError):
         return 500, "Authentication is not configured correctly."

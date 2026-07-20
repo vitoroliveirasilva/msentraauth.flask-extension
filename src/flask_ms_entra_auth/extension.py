@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import wraps
+from time import perf_counter
 from typing import ParamSpec, overload
 
 from flask import Flask, current_app, redirect, request, url_for
@@ -15,15 +17,32 @@ from .auth.protocols import MsalClientFactory
 from .auth.token_cache import delete_token_cache
 from .config import ConfigOverrides, MicrosoftEntraAuthConfig, resolve_config
 from .context import get_current_identity
-from .errors import AuthenticationRequired
+from .errors import (
+    AuthenticationRequired,
+    ConfigurationError,
+    MicrosoftEntraAuthError,
+    StorageError,
+)
+from .hooks import (
+    AuthenticatedHook,
+    AuthEvent,
+    ErrorHook,
+    EventHook,
+    HookRegistry,
+    LogoutHook,
+)
+from .observability import Observability
+from .security import SecurityReport
+from .security import audit_security as _audit_security
 from .storage import AuthStorage, MemoryStorage
 from .storage.namespaced import NamespacedStorage
 from .web.models import LoginResult
-from .web.routes import blueprint_name, create_auth_blueprint
+from .web.routes import _safe_error_response, blueprint_name, create_auth_blueprint
 from .web.session import WebSessionManager
 from .web.urls import validate_next_url
 
 _EXTENSION_KEY = "ms_entra_auth"
+_LOGGER_NAME = "flask_ms_entra_auth"
 _P = ParamSpec("_P")
 
 
@@ -33,10 +52,12 @@ class _MicrosoftEntraAuthState:
 
     extension: MicrosoftEntraAuth
     config: MicrosoftEntraAuthConfig
-    storage: AuthStorage
+    storage: NamespacedStorage
     msal: MsalService
     flow: AuthCodeFlowService
     web_session: WebSessionManager
+    observability: Observability
+    security_report: SecurityReport
     routes_registered: bool = False
     data: dict[str, object] = field(default_factory=dict)
 
@@ -44,7 +65,7 @@ class _MicrosoftEntraAuthState:
 class MicrosoftEntraAuth:
     # MS Entra Autenticação para aplicações Flask. A instância armazena substituições de construtor imutáveis e fábricas de back-end injetáveis, mas nunca armazena uma aplicação Flask. O estado da aplicação resolvido vive sob ``app.extensions['ms_entra_auth']``.
 
-    __slots__ = ("_client_factory", "_overrides", "_storage_backend")
+    __slots__ = ("_client_factory", "_hooks", "_overrides", "_storage_backend")
 
     def __init__(
         self,
@@ -67,16 +88,18 @@ class MicrosoftEntraAuth:
         auto_register_routes: bool | None = None,
         handle_route_errors: bool | None = None,
         unauthenticated_mode: str | None = None,
+        event_logging: bool | None = None,
+        request_id_header: str | None = None,
+        require_atomic_storage: bool | None = None,
+        strict_security: bool | None = None,
         storage: AuthStorage | None = None,
         msal_client_factory: MsalClientFactory | None = None,
     ) -> None:
         # Cria a extensão e opcionalmente inicializa uma aplicação Flask
         if storage is not None and not isinstance(storage, AuthStorage):
-            msg = "storage must implement AuthStorage"
-            raise TypeError(msg)
+            raise TypeError("storage must implement AuthStorage")
         if msal_client_factory is not None and not callable(msal_client_factory):
-            msg = "msal_client_factory must be callable"
-            raise TypeError(msg)
+            raise TypeError("msal_client_factory must be callable")
 
         self._overrides = ConfigOverrides(
             client_id=client_id,
@@ -100,29 +123,46 @@ class MicrosoftEntraAuth:
             auto_register_routes=auto_register_routes,
             handle_route_errors=handle_route_errors,
             unauthenticated_mode=unauthenticated_mode,
+            event_logging=event_logging,
+            request_id_header=request_id_header,
+            require_atomic_storage=require_atomic_storage,
+            strict_security=strict_security,
         )
         self._storage_backend = storage
         self._client_factory = msal_client_factory or create_confidential_client
+        self._hooks = HookRegistry()
         if app is not None:
             self.init_app(app)
 
     def init_app(self, app: Flask) -> None:
         # Valida a configuração e registra o estado da aplicação isolada. Repetir a inicialização com esta mesma instância de extensão é uma operação sem efeito idempotente e preserva o estado resolvido original
         if not isinstance(app, Flask):
-            msg = "app must be an instance of flask.Flask"
-            raise TypeError(msg)
+            raise TypeError("app must be an instance of flask.Flask")
 
         if _EXTENSION_KEY in app.extensions:
             state = app.extensions[_EXTENSION_KEY]
             if isinstance(state, _MicrosoftEntraAuthState) and state.extension is self:
                 return
-
-            msg = "app.extensions['ms_entra_auth'] is already registered"
-            raise RuntimeError(msg)
+            raise RuntimeError("app.extensions['ms_entra_auth'] is already registered")
 
         config = resolve_config(app.config, self._overrides, app_name=app.import_name)
         backend = self._storage_backend if self._storage_backend is not None else MemoryStorage()
         storage = NamespacedStorage(backend, config.session_namespace)
+        if config.require_atomic_storage and not storage.supports_atomic_take:
+            raise ConfigurationError("configured storage must support atomic one-time consumption")
+
+        security_report = _audit_security(app, config, storage)
+        if config.strict_security and not security_report.passed:
+            codes = ", ".join(
+                finding.code for finding in security_report.findings if finding.severity == "error"
+            )
+            raise ConfigurationError(f"security audit failed: {codes}")
+
+        observability = Observability(
+            config,
+            self._hooks,
+            logging.getLogger(_LOGGER_NAME),
+        )
         msal_service = MsalService(
             config=config,
             storage=storage,
@@ -141,14 +181,26 @@ class MicrosoftEntraAuth:
             msal=msal_service,
             flow=flow_service,
             web_session=web_session,
+            observability=observability,
+            security_report=security_report,
         )
         app.extensions[_EXTENSION_KEY] = state
 
         @app.before_request
-        def _restore_ms_entra_identity() -> None:
+        def _restore_ms_entra_identity() -> ResponseReturnValue | None:
             current_state = app.extensions.get(_EXTENSION_KEY)
-            if isinstance(current_state, _MicrosoftEntraAuthState):
-                current_state.web_session.restore_identity()
+            if not isinstance(current_state, _MicrosoftEntraAuthState):
+                return None
+            try:
+                identity = current_state.web_session.restore_identity()
+            except MicrosoftEntraAuthError as exc:
+                current_state.observability.emit_error(exc)
+                if current_state.config.handle_route_errors:
+                    return _safe_error_response(exc)
+                raise
+            if identity is not None:
+                current_state.observability.emit("identity_restored")
+            return None
 
         if config.auto_register_routes:
             self.register_routes(app)
@@ -156,8 +208,7 @@ class MicrosoftEntraAuth:
     def register_routes(self, app: Flask) -> None:
         # Registra o blueprint de login, callback e logout POST opcional. Repetir a chamada com a mesma aplicação é uma operação sem efeito idempotente e preserva o estado original do registro de rotas
         if not isinstance(app, Flask):
-            msg = "app must be an instance of flask.Flask"
-            raise TypeError(msg)
+            raise TypeError("app must be an instance of flask.Flask")
         state = self._state_for_app(app)
         if state.routes_registered:
             return
@@ -177,41 +228,76 @@ class MicrosoftEntraAuth:
     ) -> str:
         # Inicia um fluxo de login interativo e retorna a URI de autorização do provedor. O fluxo é armazenado na sessão web para que possa ser consumido posteriormente no callback
         state = self._current_state()
-        state.web_session.require_secure_session()
-        safe_next_url = validate_next_url(next_url, state.config)
-
-        previous_flow_id = state.web_session.discard_pending_flow()
-        if previous_flow_id is not None:
-            state.flow.discard(previous_flow_id)
-
-        started = state.flow.begin_login(next_url=safe_next_url, scopes=scopes)
+        started_at = perf_counter()
         try:
-            state.web_session.set_pending_flow(started.flow_id)
-        except Exception:
-            state.flow.discard(started.flow_id)
+            state.web_session.require_secure_session()
+            safe_next_url = validate_next_url(next_url, state.config)
+
+            previous_flow_id = state.web_session.discard_pending_flow()
+            if previous_flow_id is not None:
+                state.flow.discard(previous_flow_id)
+
+            started = state.flow.begin_login(next_url=safe_next_url, scopes=scopes)
+            try:
+                state.web_session.set_pending_flow(started.flow_id)
+            except Exception:
+                state.flow.discard(started.flow_id)
+                raise
+        except MicrosoftEntraAuthError as exc:
+            state.observability.emit_error(exc)
             raise
+
+        state.observability.emit(
+            "authentication_started",
+            duration_ms=_elapsed_ms(started_at),
+        )
         return started.auth_uri
 
     def complete_login(self, auth_response: Mapping[str, object]) -> LoginResult:
         # Consome um fluxo de login pendente, persiste a identidade resultante e retorna a URL de redirecionamento segura
         state = self._current_state()
-        flow_id = state.web_session.consume_pending_flow()
-        result = state.flow.complete_login(flow_id=flow_id, auth_response=auth_response)
-        state.web_session.establish_identity(result.identity)
+        started_at = perf_counter()
+        result: LoginResult | None = None
+        try:
+            flow_id = state.web_session.consume_pending_flow()
+            result = state.flow.complete_login(flow_id=flow_id, auth_response=auth_response)
+            self._hooks.emit_authenticated(result.identity)
+            state.web_session.establish_identity(result.identity)
+        except MicrosoftEntraAuthError as exc:
+            if result is not None:
+                try:
+                    delete_token_cache(state.storage, result.identity.home_account_id)
+                except StorageError as cleanup_error:
+                    state.observability.emit_error(cleanup_error)
+            state.observability.emit_error(exc)
+            raise
+
+        state.observability.emit(
+            "authentication_succeeded",
+            duration_ms=_elapsed_ms(started_at),
+        )
         return result
 
     def logout(self) -> str:
         # Limpa apenas a identidade local desta sessão do navegador, o fluxo e o cache de tokens
         state = self._current_state()
-        state.web_session.require_secure_session()
+        started_at = perf_counter()
+        try:
+            state.web_session.require_secure_session()
 
-        pending_flow_id = state.web_session.discard_pending_flow()
-        if pending_flow_id is not None:
-            state.flow.discard(pending_flow_id)
+            pending_flow_id = state.web_session.discard_pending_flow()
+            if pending_flow_id is not None:
+                state.flow.discard(pending_flow_id)
 
-        identity = state.web_session.clear_authentication()
-        if identity is not None:
-            delete_token_cache(state.storage, identity.home_account_id)
+            identity = state.web_session.clear_authentication()
+            if identity is not None:
+                delete_token_cache(state.storage, identity.home_account_id)
+            self._hooks.emit_logout(identity)
+        except MicrosoftEntraAuthError as exc:
+            state.observability.emit_error(exc)
+            raise
+
+        state.observability.emit("logout_completed", duration_ms=_elapsed_ms(started_at))
         return state.config.post_logout_redirect_uri
 
     def acquire_token(
@@ -220,14 +306,51 @@ class MicrosoftEntraAuth:
         *,
         force_refresh: bool = False,
     ) -> str:
-        # Adquire um token de acesso delegado silenciosamente para a identidade atual. O token é retornado apenas para o código do aplicativo do lado do servidor e nunca é adicionado ao objeto de identidade ou à sessão do cliente Flask
-        identity = get_current_identity()
+        # Adquire silenciosamente um token de acesso delegado para ``current_identity``
         state = self._current_state()
-        return state.msal.acquire_token_silent(
-            home_account_id=identity.home_account_id,
-            scopes=scopes,
-            force_refresh=force_refresh,
-        )
+        started_at = perf_counter()
+        try:
+            identity = get_current_identity()
+            token = state.msal.acquire_token_silent(
+                home_account_id=identity.home_account_id,
+                scopes=scopes,
+                force_refresh=force_refresh,
+            )
+        except MicrosoftEntraAuthError as exc:
+            state.observability.emit_error(exc)
+            raise
+        state.observability.emit("token_acquired", duration_ms=_elapsed_ms(started_at))
+        return token
+
+    def on_authenticated(self, callback: AuthenticatedHook) -> AuthenticatedHook:
+        # Registra um hook local executado antes do estabelecimento da sessão
+        return self._hooks.on_authenticated(callback)
+
+    def on_logout(self, callback: LogoutHook) -> LogoutHook:
+        # Registra um hook executado após a limpeza local do logout
+        return self._hooks.on_logout(callback)
+
+    def on_error(self, callback: ErrorHook) -> ErrorHook:
+        # Registra um hook para erros previsíveis da extensão
+        return self._hooks.on_error(callback)
+
+    def on_event(self, callback: EventHook) -> EventHook:
+        # Registra um hook para eventos estruturados sanitizados
+        return self._hooks.on_event(callback)
+
+    def audit_security(self, app: Flask | None = None) -> SecurityReport:
+        # Retorna um relatório de postura de segurança atualizado e somente leitura
+        if app is None:
+            state = self._current_state()
+            target_app = current_app
+        else:
+            if not isinstance(app, Flask):
+                raise TypeError("app must be an instance of flask.Flask")
+            state = self._state_for_app(app)
+            target_app = app
+        report = _audit_security(target_app, state.config, state.storage)
+        state.security_report = report
+        return report
 
     @overload
     def login_required(
@@ -258,7 +381,7 @@ class MicrosoftEntraAuth:
         Callable[_P, ResponseReturnValue]
         | Callable[[Callable[_P, ResponseReturnValue]], Callable[_P, ResponseReturnValue]]
     ):
-        # Requer autenticação, redirecionando solicitações seguras ou levantando explicitamente
+        # Exige autenticação, redirecionando requisições seguras ou levantando exceção
         if on_missing is not None and on_missing not in {"raise", "redirect"}:
             raise ValueError("on_missing must be 'redirect' or 'raise'")
 
@@ -283,7 +406,9 @@ class MicrosoftEntraAuth:
         state = self._current_state()
         mode = state.config.unauthenticated_mode if on_missing is None else on_missing
         if mode == "raise" or request.method not in {"GET", "HEAD"}:
-            raise AuthenticationRequired("authentication is required")
+            error = AuthenticationRequired("authentication is required")
+            state.observability.emit_error(error)
+            raise error
         if not state.routes_registered:
             raise RuntimeError("authentication routes are not registered")
 
@@ -291,6 +416,10 @@ class MicrosoftEntraAuth:
         if target.endswith("?"):
             target = target[:-1]
         return redirect(url_for(f"{blueprint_name()}.login", next=target))
+
+    def _notify_error(self, error: MicrosoftEntraAuthError) -> None:
+        # Notifica hooks sobre erros levantados antes da execução de um método público da extensão
+        self._current_state().observability.emit_error(error)
 
     def _current_state(self) -> _MicrosoftEntraAuthState:
         state = current_app.extensions.get(_EXTENSION_KEY)
@@ -303,3 +432,10 @@ class MicrosoftEntraAuth:
         if not isinstance(state, _MicrosoftEntraAuthState) or state.extension is not self:
             raise RuntimeError("MicrosoftEntraAuth is not initialized for this application")
         return state
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return (perf_counter() - started_at) * 1000
+
+
+__all__ = ["AuthEvent", "MicrosoftEntraAuth"]

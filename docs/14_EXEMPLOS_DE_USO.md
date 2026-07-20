@@ -1,105 +1,51 @@
 # Exemplos de uso
 
-## Fluxo padrão
+## Vínculo local
 
 ```python
-from flask import Flask
-from flask_ms_entra_auth import MicrosoftEntraAuth, current_identity
+@entra_auth.on_authenticated
+def bind(identity: Identity) -> None:
+    account = users.find(identity.tenant_id, identity.object_id)
+    if account is None:
+        raise AuthenticationRejected("local account is not available")
+```
 
-entra_auth = MicrosoftEntraAuth()
+## Auditoria de logout
 
+```python
+@entra_auth.on_logout
+def audit(identity: Identity | None) -> None:
+    logger.info("local logout", extra={"had_identity": identity is not None})
+```
 
-def create_app() -> Flask:
-    app = Flask(__name__)
-    app.secret_key = "secret-provider-value"
-    app.config.from_mapping(
-        MS_ENTRA_CLIENT_ID="client-id",
-        MS_ENTRA_CLIENT_SECRET="client-secret",
-        MS_ENTRA_TENANT_ID="tenant-id",
-        MS_ENTRA_REDIRECT_URI="https://app.example.com/auth/callback",
-        MS_ENTRA_SESSION_NAMESPACE="app-principal",
+Não registre username, email, claims ou tokens quando não forem necessários.
+
+## Métricas
+
+```python
+@entra_auth.on_event
+def metric(event: AuthEvent) -> None:
+    metrics.increment(event.name)
+```
+
+## Auditoria de segurança em startup
+
+```python
+report = entra_auth.audit_security(app)
+for finding in report.findings:
+    app.logger.warning(
+        "auth security finding",
+        extra={"code": finding.code, "severity": finding.severity},
     )
-    entra_auth.init_app(app)
-
-    @app.get("/conta")
-    @entra_auth.login_required
-    def conta() -> dict[str, str]:
-        return {"object_id": current_identity.object_id}
-
-    return app
 ```
 
-Acessar `/conta` redireciona para `/auth/login`, conclui o callback e retorna ao destino original.
-
-## API sem redirect automático
+## Backend distribuído
 
 ```python
-@app.get("/api/conta")
-@entra_auth.login_required(on_missing="raise")
-def api_conta() -> dict[str, str]:
-    return {"tenant_id": current_identity.tenant_id}
-```
-
-## Rotas customizadas
-
-```python
-app.config["MS_ENTRA_AUTO_REGISTER_ROUTES"] = False
-
-@app.get("/entrar")
-def entrar():
-    return redirect(entra_auth.begin_login(next_url=request.args.get("next")))
-
-@app.get("/oauth/callback")
-def callback():
-    result = entra_auth.complete_login(request.args.to_dict(flat=True))
-    return redirect(result.next_url)
-
-@app.post("/sair")
-def sair():
-    return redirect(entra_auth.logout())
-```
-
-A redirect URI registrada no Entra deve corresponder à rota customizada.
-
-## Destino externo permitido
-
-```python
-app.config.from_mapping(
-    MS_ENTRA_ALLOWED_NEXT_HOSTS=["portal.example.com"],
-    MS_ENTRA_POST_LOGIN_REDIRECT_URI="https://portal.example.com/inicio",
-)
-```
-
-A comparação usa host e porta exatos e HTTP externo não é aceito.
-
-## Token no servidor
-
-```python
-@app.get("/graph-status")
-@entra_auth.login_required
-def graph_status() -> dict[str, str]:
-    token = entra_auth.acquire_token(["User.Read"])
-    # Use token em uma chamada server-side (não o devolva ao navegador).
-    return {"status": "token-disponivel"}
-```
-
-## Backend próprio
-
-```python
-from flask_ms_entra_auth import AuthStorage, MicrosoftEntraAuth
-
 class RedisStorage:
-    def load(self, key: str) -> bytes | None:
-        return redis_client.get(key)
-
-    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None:
-        redis_client.set(key, value, ex=ttl)
-
-    def delete(self, key: str) -> None:
-        redis_client.delete(key)
-
-storage: AuthStorage = RedisStorage()
-entra_auth = MicrosoftEntraAuth(storage=storage, session_namespace="app-principal")
+    def take(self, key: str) -> bytes | None:
+        # Deve usar script Lua, GETDEL ou primitiva equivalente do backend.
+        ...
 ```
 
-Redis é exemplo de contrato, não dependência do pacote.
+Configure `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True` para impedir fallback não distribuído.

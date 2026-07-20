@@ -1,102 +1,76 @@
 # API pública
 
-## Símbolos exportados
-
-- `MicrosoftEntraAuth`;
-- `Identity`;
-- `LoginResult`;
-- `current_identity`;
-- `AuthStorage`;
-- `MemoryStorage`;
-- `MicrosoftEntraAuthError` e subclasses públicas;
-- `__version__`.
-
 ## `MicrosoftEntraAuth`
 
-### Inicialização
+Métodos principais:
+
+- `init_app(app)`;
+- `register_routes(app)`;
+- `begin_login(next_url=None, scopes=None)`;
+- `complete_login(auth_response)`;
+- `acquire_token(scopes=None, force_refresh=False)`;
+- `logout()`;
+- `login_required`;
+- `on_authenticated(callback)`;
+- `on_logout(callback)`;
+- `on_error(callback)`;
+- `on_event(callback)`;
+- `audit_security(app=None)`.
+
+## Hooks
 
 ```python
-extension = MicrosoftEntraAuth()
-extension.init_app(app)
+@extension.on_authenticated
+def bind(identity: Identity) -> None: ...
+
+@extension.on_logout
+def after_logout(identity: Identity | None) -> None: ...
+
+@extension.on_error
+def observe(error: MicrosoftEntraAuthError) -> None: ...
+
+@extension.on_event
+def metrics(event: AuthEvent) -> None: ...
 ```
 
-A mesma instância pode inicializar múltiplas aplicações. Repetir `init_app()` na mesma aplicação é idempotente.
+Registros duplicados do mesmo callable são ignorados. A ordem de registro é preservada.
 
-### Rotas
+## `AuthEvent`
+
+Dataclass congelada com:
+
+- `name`;
+- `timestamp`;
+- `request_id`;
+- `endpoint`;
+- `method`;
+- `duration_ms`;
+- `error_code`;
+- `correlation_id`.
+
+## Storage
 
 ```python
-extension.register_routes(app)
+class AuthStorage(Protocol):
+    def load(self, key: str) -> bytes | None: ...
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
+    def delete(self, key: str) -> None: ...
+
+class AtomicAuthStorage(AuthStorage, Protocol):
+    def take(self, key: str) -> bytes | None: ...
 ```
 
-Registra login, callback e logout quando a aplicação opta por desabilitar o registro automático. A operação é idempotente e rejeita colisão de nome de blueprint.
+`take()` deve consumir o valor em operação única no backend.
 
-### Login
+## Auditoria
 
-```python
-auth_uri = extension.begin_login(next_url="/painel", scopes=["User.Read"])
-```
+`audit_security()` retorna `SecurityReport`, que contém uma tupla imutável de `SecurityFinding`.
 
-Valida o destino, cria e persiste o fluxo e retorna somente a URL segura do provedor.
-
-```python
-result = extension.complete_login(request.args.to_dict(flat=True))
-```
-
-Consome o fluxo pendente, valida callback, persiste a identidade e retorna `LoginResult(identity, next_url)`.
-
-### Logout
-
-```python
-redirect_uri = extension.logout()
-```
-
-Remove fluxo pendente, identidade e token cache da sessão atual. Retorna o destino pós-logout configurado.
-
-### Proteção de endpoints
-
-```python
-@extension.login_required
-def view(): ...
-
-@extension.login_required(on_missing="raise")
-def api_view(): ...
-```
-
-`on_missing` aceita `redirect` ou `raise`. Métodos não seguros nunca são convertidos em redirect.
-
-### Aquisição silenciosa
-
-```python
-access_token = extension.acquire_token(["User.Read"], force_refresh=False)
-```
-
-Usa `current_identity` e token cache server-side. O token é retornado ao código servidor e não é persistido na identidade.
-
-## `Identity`
-
-Modelo congelado e profundamente imutável. Campos principais:
-
-- `object_id`;
-- `tenant_id`;
-- `subject`;
-- `home_account_id`;
-- `display_name`;
-- `username`;
-- `claims`;
-- `stable_id` como `(tenant_id, object_id)`.
-
-## `current_identity`
-
-Proxy de contexto Flask. Fora de requisição, sem extensão ou sem identidade autenticada, falha explicitamente.
-
-## `LoginResult`
-
-Resultado imutável do callback:
-
-```python
-result.identity
-result.next_url
-```
+- `report.passed`: nenhum achado `error`;
+- `report.hardened`: nenhum achado;
+- `finding.code`: identificador estável;
+- `finding.severity`: `info`, `warning` ou `error`;
+- `finding.message`: texto sanitizado.
 
 ## Erros
 
@@ -107,12 +81,15 @@ MicrosoftEntraAuthError
 ├── AuthenticationError
 │   ├── AuthenticationRequired
 │   ├── AuthenticationCancelled
+│   ├── AuthenticationRejected
 │   ├── InvalidCallbackError
 │   ├── InvalidNavigationTarget
 │   ├── IdentityValidationError
 │   └── ConsentRequired
+├── HookExecutionError
+│   └── LocalBindingError
 ├── TokenAcquisitionError
 └── ProviderUnavailableError
 ```
 
-O blueprint pode converter esses erros em respostas sanitizadas. Com tratamento interno desativado, a aplicação pode tratá-los diretamente.
+`AuthenticationRejected` representa decisão explícita da aplicação. `LocalBindingError` representa falha inesperada no vínculo local. `HookExecutionError` identifica falha em hook cujo efeito principal já pode ter ocorrido.

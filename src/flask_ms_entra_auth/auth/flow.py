@@ -19,7 +19,7 @@ from ..errors import (
     TokenAcquisitionError,
 )
 from ..identity import Identity
-from ..storage import AuthStorage
+from ..storage import AtomicAuthStorage, AuthStorage
 from ..web.models import LoginResult, LoginStart
 from .protocols import InteractiveMsalClient, MsalAccount, MsalClientFactory, MsalResult
 from .token_cache import persist_token_cache
@@ -86,12 +86,20 @@ class AuthCodeFlowService:
         # Consome uma transação, valide o callback e construa uma identidade
         validated_flow_id = _validate_flow_id(flow_id)
         key = _flow_key(validated_flow_id)
-        payload = self._storage.load(key)
+
+        if isinstance(self._storage, AtomicAuthStorage):
+            payload = self._storage.take(key)
+        else:
+            payload = self._storage.load(key)
+            if payload is not None:
+                self._storage.delete(key)
+
         if payload is None:
-            raise InvalidCallbackError("authentication flow is missing, expired, or consumed")
+            raise InvalidCallbackError(
+                "authentication flow is missing, expired, or consumed"
+            )
 
         # Consome antes da redenção para que tentativas de repetição e callbacks simultâneos não possam reproduzi-lo
-        self._storage.delete(key)
         flow, next_url = _deserialize_flow(payload)
         response = _normalize_auth_response(auth_response)
         _validate_callback_state(flow, response)

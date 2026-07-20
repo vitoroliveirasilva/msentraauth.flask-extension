@@ -17,7 +17,7 @@ from ..errors import (
     StorageError,
 )
 from ..identity import Identity
-from ..storage import AuthStorage
+from ..storage import AtomicAuthStorage, AuthStorage
 
 _SESSION_PREFIX: Final = "_msentra_"
 _SESSION_ID_BYTES: Final = 32
@@ -126,13 +126,18 @@ class WebSessionManager:
         session_id = metadata.get("session_id")
         if isinstance(session_id, str):
             validated_session_id = _validate_session_identifier(session_id)
-            payload = self._storage.load(_identity_key(validated_session_id))
+            identity_key = _identity_key(validated_session_id)
+            if isinstance(self._storage, AtomicAuthStorage):
+                payload = self._storage.take(identity_key)
+            else:
+                payload = self._storage.load(identity_key)
+                if payload is not None:
+                    self._storage.delete(identity_key)
             if payload is not None:
                 identity = _deserialize_identity(
                     payload,
                     expected_tenant_id=self._config.tenant_id,
                 )
-            self._storage.delete(_identity_key(validated_session_id))
 
         self._write_metadata({})
         clear_identity()

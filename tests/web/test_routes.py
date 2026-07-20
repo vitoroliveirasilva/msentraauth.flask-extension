@@ -4,6 +4,7 @@ import pytest
 from flask import Flask
 
 from flask_ms_entra_auth import (
+    AuthenticationRejected,
     AuthenticationRequired,
     ConfigurationError,
     IdentityValidationError,
@@ -32,6 +33,10 @@ def test_login_rejects_duplicate_navigation_targets() -> None:
     ("error", "expected"),
     [
         (AuthenticationRequired("required"), (401, "Authentication is required.")),
+        (
+            AuthenticationRejected("rejected"),
+            (403, "Authentication was rejected by the application."),
+        ),
         (
             TokenAcquisitionError("token"),
             (502, "Authentication could not be completed."),

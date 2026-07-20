@@ -1,7 +1,5 @@
 # Configuração
 
-## Prefixo
-
 Todas as chaves públicas usam `MS_ENTRA_`.
 
 ## Obrigatórias
@@ -24,31 +22,26 @@ Todas as chaves públicas usam `MS_ENTRA_`.
 |                 `MS_ENTRA_FLOW_TTL` | `600`           | Transação interativa       |
 |             `MS_ENTRA_IDENTITY_TTL` | `28800`         | Identidade server-side     |
 |               `MS_ENTRA_URL_PREFIX` | `/auth`         | Prefixo do blueprint       |
-|  `MS_ENTRA_POST_LOGIN_REDIRECT_URI` | `/`             | Destino padrão após login  |
-| `MS_ENTRA_POST_LOGOUT_REDIRECT_URI` | `/`             | Destino após logout local  |
+|  `MS_ENTRA_POST_LOGIN_REDIRECT_URI` | `/`             | Destino após login         |
+| `MS_ENTRA_POST_LOGOUT_REDIRECT_URI` | `/`             | Destino após logout        |
 |       `MS_ENTRA_ALLOWED_NEXT_HOSTS` | `[]`            | Hosts externos permitidos  |
 |     `MS_ENTRA_AUTO_REGISTER_ROUTES` | `True`          | Registro do blueprint      |
 |      `MS_ENTRA_HANDLE_ROUTE_ERRORS` | `True`          | Respostas internas seguras |
 |     `MS_ENTRA_UNAUTHENTICATED_MODE` | `redirect`      | Política do decorator      |
-|           `MS_ENTRA_ENABLE_PII_LOG` | `False`         | Deve permanecer desligado  |
+|            `MS_ENTRA_EVENT_LOGGING` | `False`         | Logging estruturado        |
+|        `MS_ENTRA_REQUEST_ID_HEADER` | `X-Request-ID`  | Header de correlação       |
+|   `MS_ENTRA_REQUIRE_ATOMIC_STORAGE` | `False`         | Exigir `AtomicAuthStorage` |
+|          `MS_ENTRA_STRICT_SECURITY` | `False`         | Bloquear achados `error`   |
 
-## Navegação segura
+`MS_ENTRA_ENABLE_PII_LOG` permanece reservado e desligado.
 
-Destinos locais devem começar com `/`, não podem começar com `//`, conter barra invertida, controles ou fragmento. URLs absolutas exigem host exato em `MS_ENTRA_ALLOWED_NEXT_HOSTS`; HTTP externo é rejeitado e só é tolerado em loopback.
+## Regras de hardening
 
-## Rotas customizadas
-
-Para aplicações que registram login, callback e logout manualmente:
-
-```python
-MS_ENTRA_AUTO_REGISTER_ROUTES = False
-```
-
-Nesse modo, `register_routes(app)` pode ser chamado depois ou a aplicação pode usar os métodos públicos do fluxo.
-
-## Sessão Flask
-
-Operações web exigem `SECRET_KEY` configurada. O cookie assinado contém somente referências aleatórias; conteúdo sensível permanece no storage.
+- Request ID header aceita somente letras, números e hífen;
+- Valores recebidos no request aceitam formato seguro limitado a 128 caracteres;
+- Storage atômico é capacidade do backend, não uma simulação com duas operações;
+- Modo estrito não bloqueia avisos automaticamente;
+- A auditoria não imprime o valor do `SECRET_KEY`.
 
 ## Precedência
 

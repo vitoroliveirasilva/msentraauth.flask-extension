@@ -4,6 +4,8 @@ from __future__ import annotations
 class MicrosoftEntraAuthError(Exception):
     """Base exeção para falhas previsíveis da extensão"""
 
+    _ms_entra_auth_notified: bool = False
+
 
 class ConfigurationError(MicrosoftEntraAuthError):
     """Exceção levantada quando a configuração do Microsoft Entra está ausente ou inválida"""
@@ -25,6 +27,10 @@ class AuthenticationCancelled(AuthenticationError):
     """Exceção levantada quando o usuário cancela previsivelmente a autenticação interativa"""
 
 
+class AuthenticationRejected(AuthenticationError):
+    """Exceção levantada quando a aplicação rejeita uma identidade externa válida"""
+
+
 class InvalidCallbackError(AuthenticationError):
     """Exceção levantada quando um callback de autenticação está faltando, expirado ou inconsistente"""
 
@@ -39,6 +45,18 @@ class IdentityValidationError(AuthenticationError):
 
 class ConsentRequired(AuthenticationError):
     """Exceção levantada quando o MSAL não pode satisfazer uma solicitação sem interação do usuário"""
+
+
+class HookExecutionError(MicrosoftEntraAuthError):
+    """Exceção levantada quando um gancho de aplicação falha após a entrada no código da extensão"""
+
+    def __init__(self, message: str, *, event: str) -> None:
+        super().__init__(message)
+        self.event = event
+
+
+class LocalBindingError(HookExecutionError):
+    """Exceção levantada quando um hook autenticado não consegue vincular a identidade externa localmente"""
 
 
 class TokenAcquisitionError(MicrosoftEntraAuthError):

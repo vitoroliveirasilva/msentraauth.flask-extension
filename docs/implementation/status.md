@@ -2,48 +2,46 @@
 
 ## Etapa atual
 
-ETAPAS 05 e 06 concluídas em conjunto: fluxo web, rotas e decorator.
+ETAPAS 07 e 08 concluídas em conjunto: hooks e hardening.
 
 ## Decisões tomadas
 
-### Fluxo web
+### Hooks
 
-- Authorization Code Flow é iniciado e concluído exclusivamente pelos métodos do MSAL;
-- State explícito usa aleatoriedade criptográfica e comparação em tempo constante;
-- O dicionário completo do fluxo é persistido server-side com TTL;
-- Cookie Flask guarda somente `flow_id` e `session_id` aleatórios;
-- Fluxo é removido antes da redenção do código, aplicando consume-first contra replay;
-- Callback rejeita campos duplicados, estruturas excessivas e state inconsistente;
-- `access_denied` é cancelamento previsível;
-- Claims, tenant e conta MSAL são validados antes de criar identidade;
-- Identidade server-side é restaurada automaticamente em `before_request`;
-- Referência interna é rotacionada após autenticação.
+- Hooks são registrados na instância, preservam ordem e ignoram duplicidade do mesmo callable;
+- `on_authenticated` roda antes da sessão local;
+- `AuthenticationRejected` preserva rejeição de domínio;
+- Falhas inesperadas de vínculo viram `LocalBindingError`;
+- `on_logout` roda depois da limpeza local;
+- Falha de logout não recria autenticação removida;
+- `on_error` e `on_event` não mascaram o comportamento original;
+- Hooks compartilhados entre aplicações que reutilizam a mesma instância foram documentados.
 
-### Navegação
+### Observabilidade
 
-- `next` local deve ser absoluto dentro da aplicação e não pode usar `//`, barra invertida, controles ou fragmento;
-- URL externa exige host e porta exatos em allowlist;
-- HTTP externo é rejeitado, exceto loopback para desenvolvimento;
-- Destinos configurados passam pela mesma validação.
+- `AuthEvent` é congelado e possui schema fechado;
+- Request ID válido é reaproveitado por requisição e valor inválido é substituído;
+- Logging é opcional, usa mensagem constante e campos extras normalizados;
+- Erros previsíveis notificam observadores uma única vez;
+- Tokens, auth code, claims, segredo e payload bruto permanecem excluídos.
 
-### Rotas e decorator
+### Hardening de storage
 
-- Blueprint padrão oferece `GET /login`, `GET /callback` e `POST /logout` sob `/auth`;
-- Registro automático, prefixo e tratamento de erros são configuráveis;
-- Aplicações podem registrar o blueprint manualmente ou usar métodos públicos em rotas próprias;
-- `login_required` suporta uso direto e parametrizado;
-- Usuário anônimo pode ser redirecionado apenas em `GET` e `HEAD`;
-- Métodos que alteram estado geram `AuthenticationRequired`;
-- Respostas internas de erro são curtas e sanitizadas.
+- `AtomicAuthStorage.take()` representa consumo único nativo;
+- `MemoryStorage.take()` é atômico dentro do processo;
+- Fluxo e identidade usam `take()` quando disponível;
+- Fallback namespaced é protegido apenas no adaptador local e não promete atomicidade distribuída;
+- `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True` bloqueia backend sem capacidade nativa;
+- Token cache continua last-write-wins e sem CAS.
 
-### Logout
+### Auditoria
 
-- Limpa somente o fluxo pendente, identidade, referência e token cache da sessão atual;
-- Preserva outras chaves da sessão Flask;
-- Não promete encerrar todas as sessões Microsoft;
-- A rota padrão exige `POST`.
+- `audit_security()` é somente leitura;
+- Achados verificam secret de sessão, HttpOnly, SameSite, Secure, `MemoryStorage` e consumo atômico;
+- `MS_ENTRA_STRICT_SECURITY=True` bloqueia apenas achados de severidade `error`;
+- Mensagens de achado não contêm valores de configuração.
 
-## Comandos
+## Comandos executados
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -60,14 +58,39 @@ python -m twine check dist/*
 DIST_DIR=dist pytest tests/test_distribution.py --no-cov
 ```
 
+Também foram executados parser YAML da CI, instalação do wheel em ambiente virtual limpo e smoke test da API empacotada.
+
+## Resultados
+
+Ambiente local disponível: Linux, Python 3.13.5.
+
+- Instalação editável: aprovada;
+- Ruff lint: aprovado;
+- Ruff format check: aprovado, 47 arquivos Python formatados;
+- mypy estrito: aprovado, 47 arquivos analisados;
+- pytest principal: 465 testes aprovados e 1 teste de distribuição ignorado de forma esperada;
+- Cobertura: 100% de linhas e branches, 1657 statements e 472 branches;
+- Bandit: zero ocorrências em 2638 linhas de código analisadas;
+- `pip-audit . --dry-run`: 17 pacotes resolvidos, sem vulnerabilidades reportadas no modo seco;
+- `pip-audit .`: consulta externa não concluída porque o sandbox não resolveu `pypi.org`;
+- Workflow YAML: válido, com matriz Python 3.11, 3.12, 3.13 e 3.14;
+- Build isolado: aprovado;
+- Wheel: `flask_ms_entra_auth-0.6.0-py3-none-any.whl`;
+- Source distribution: `flask_ms_entra_auth-0.6.0.tar.gz`;
+- `twine check`: aprovado para ambos;
+- Inspeção de wheel e sdist: aprovada;
+- Instalação do wheel em ambiente virtual limpo: aprovada;
+- Smoke test de hooks, consumo atômico, auditoria, rotas e versão: aprovado.
+
 ## Riscos e limites
 
+- Hooks executam no worker da requisição e podem acrescentar latência;
+- Não existe rollback automático de banco ou de efeitos externos;
 - `MemoryStorage` perde dados ao reiniciar e não compartilha estado entre workers;
-- Produção exige backend compartilhado e política de disponibilidade;
-- Consume-first prioriza proteção contra replay: falha depois do consumo exige novo login;
-- A aplicação continua responsável por HTTPS, `SECRET_KEY`, flags de cookie, CSRF, proxy, rate limit e autorização;
-- Logout local não encerra todas as sessões Microsoft;
+- Atomicidade distribuída depende da implementação real do backend;
+- Token cache pode sofrer last-write-wins em concorrência distribuída;
+- Causas de exceção podem conter detalhes sensíveis e exigem logging controlado.
 
 ## Declaração de escopo
 
-Nenhum hook público, vínculo automático com usuário local, regra de autorização, concorrência distribuída com CAS, Redis oficial, Microsoft Graph, template, frontend, Docker, deploy, TestPyPI ou publicação foi iniciado. A ETAPA 07 permanece intacta.
+A ETAPA 09 não foi iniciada. Nenhum Redis oficial, integração com template, Microsoft Graph, frontend, Docker, deploy, TestPyPI ou publicação foi implementado.

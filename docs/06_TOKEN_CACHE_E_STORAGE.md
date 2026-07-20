@@ -1,45 +1,31 @@
 # Token cache e storage
 
-## Contrato
+## Contratos
 
-```python
-class AuthStorage(Protocol):
-    def load(self, key: str) -> bytes | None: ...
-    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None: ...
-    def delete(self, key: str) -> None: ...
-```
+`AuthStorage` define `load`, `save` e `delete`. `AtomicAuthStorage` adiciona `take`, que lê e remove um valor em uma única operação do backend.
 
-## Dados persistidos
+## Implementação padrão
 
-|             Dado | TTL padrão | Chave                        |
-| ---------------: | :--------- | :--------------------------- |
-| Fluxo interativo | 600 s      | Referência aleatória         |
-|       Identidade | 28800 s    | Hash de session ID aleatório |
-|      Token cache | 28800 s    | Hash de `home_account_id`    |
+`MemoryStorage` usa `RLock`, TTL monotônico, last-write-wins e `take()` atômico dentro do processo. Ele perde dados ao encerrar e não é adequado para múltiplos workers.
 
-Todos recebem também o namespace da aplicação.
+## Namespace
 
-## Cookie
+Cada aplicação usa prefixo exclusivo. Chaves públicas não incluem email, token ou secret. Identificadores de conta usados no token cache são derivados por hash.
 
-O cookie Flask não contém fluxo, claims, identidade, auth code nem cache. Ele guarda apenas referências aleatórias assinadas pela `SECRET_KEY` da aplicação.
+## Consumo único
 
-## Cache MSAL
+Fluxo de login e identidade usam `take()` quando disponível. O adaptador namespaced oferece fallback `load()` e `delete()` protegido por lock local, apenas para compatibilidade.
 
-- A serialização usa exclusivamente `SerializableTokenCache`;
-- Refresh tokens não são lidos ou manipulados diretamente;
-- O cache só é gravado quando `has_state_changed` indica alteração.
+Esse fallback não evita corrida entre processos. Em produção distribuída, implemente `AtomicAuthStorage` e habilite `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True`.
 
-## Concorrência
+## Token cache
 
-- Fluxo interativo: consume-first, uma única redenção;
-- Escritas gerais: last-write-wins;
-- `MemoryStorage`: protegido por `RLock`, somente para desenvolvimento;
-- Concorrência distribuída e CAS permanecem para hardening futuro.
+A serialização usa exclusivamente `SerializableTokenCache`. Refresh tokens não são lidos ou alterados diretamente. A política de persistência continua last-write-wins e não oferece CAS.
 
-## Logout
+## Falhas
 
-Remove somente fluxo, identidade e cache associados à sessão atual. Falhas de storage são encapsuladas em `StorageError`, com causa preservada e mensagem sanitizada.
+Falhas de leitura, escrita, remoção ou consumo são convertidas em `StorageError`, com causa preservada. Mensagens públicas não repetem chave, valor ou texto bruto do backend.
 
 ## Produção
 
-Use backend compartilhado entre workers, TLS quando aplicável, menor privilégio, TTL, proteção em repouso e política explícita de indisponibilidade. Nunca registre chaves, identificadores de sessão, cache ou tokens.
+Backend de produção deve considerar TLS, menor privilégio, TTL, proteção em repouso, múltiplos workers, indisponibilidade e operação atômica real.

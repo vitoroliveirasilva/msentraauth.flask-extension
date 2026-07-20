@@ -18,6 +18,7 @@ _DEFAULT_URL_PREFIX: Final = "/auth"
 _DEFAULT_POST_LOGIN_REDIRECT_URI: Final = "/"
 _DEFAULT_POST_LOGOUT_REDIRECT_URI: Final = "/"
 _DEFAULT_UNAUTHENTICATED_MODE: Final = "redirect"
+_DEFAULT_REQUEST_ID_HEADER: Final = "X-Request-ID"
 _UNAUTHENTICATED_MODES: Final = frozenset({"raise", "redirect"})
 _RESERVED_TENANTS: Final = frozenset({"common", "consumers", "organizations"})
 _PLACEHOLDERS: Final = frozenset(
@@ -57,6 +58,10 @@ class MicrosoftEntraAuthConfig:
     auto_register_routes: bool = True
     handle_route_errors: bool = True
     unauthenticated_mode: str = _DEFAULT_UNAUTHENTICATED_MODE
+    event_logging: bool = False
+    request_id_header: str = _DEFAULT_REQUEST_ID_HEADER
+    require_atomic_storage: bool = False
+    strict_security: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +85,10 @@ class ConfigOverrides:
     auto_register_routes: bool | None = None
     handle_route_errors: bool | None = None
     unauthenticated_mode: str | None = None
+    event_logging: bool | None = None
+    request_id_header: str | None = None
+    require_atomic_storage: bool | None = None
+    strict_security: bool | None = None
 
 
 def resolve_config(
@@ -222,6 +231,43 @@ def resolve_config(
         _DEFAULT_UNAUTHENTICATED_MODE if unauthenticated_value is None else unauthenticated_value
     )
 
+    event_logging_value = _pick(overrides.event_logging, app_config, "MS_ENTRA_EVENT_LOGGING")
+    event_logging = _validate_boolean(
+        "MS_ENTRA_EVENT_LOGGING",
+        False if event_logging_value is None else event_logging_value,
+    )
+
+    request_id_header_value = _pick(
+        overrides.request_id_header,
+        app_config,
+        "MS_ENTRA_REQUEST_ID_HEADER",
+    )
+    request_id_header = _validate_request_id_header(
+        _DEFAULT_REQUEST_ID_HEADER
+        if request_id_header_value is None
+        else _required_text("MS_ENTRA_REQUEST_ID_HEADER", request_id_header_value)
+    )
+
+    require_atomic_value = _pick(
+        overrides.require_atomic_storage,
+        app_config,
+        "MS_ENTRA_REQUIRE_ATOMIC_STORAGE",
+    )
+    require_atomic_storage = _validate_boolean(
+        "MS_ENTRA_REQUIRE_ATOMIC_STORAGE",
+        False if require_atomic_value is None else require_atomic_value,
+    )
+
+    strict_security_value = _pick(
+        overrides.strict_security,
+        app_config,
+        "MS_ENTRA_STRICT_SECURITY",
+    )
+    strict_security = _validate_boolean(
+        "MS_ENTRA_STRICT_SECURITY",
+        False if strict_security_value is None else strict_security_value,
+    )
+
     return MicrosoftEntraAuthConfig(
         client_id=client_id,
         client_secret=client_secret,
@@ -240,6 +286,10 @@ def resolve_config(
         auto_register_routes=auto_register_routes,
         handle_route_errors=handle_route_errors,
         unauthenticated_mode=unauthenticated_mode,
+        event_logging=event_logging,
+        request_id_header=request_id_header,
+        require_atomic_storage=require_atomic_storage,
+        strict_security=strict_security,
     )
 
 
@@ -483,3 +533,13 @@ def _validate_unauthenticated_mode(value: object) -> str:
     if normalized not in _UNAUTHENTICATED_MODES:
         raise ConfigurationError("MS_ENTRA_UNAUTHENTICATED_MODE must be 'redirect' or 'raise'")
     return normalized
+
+
+def _validate_request_id_header(value: str) -> str:
+    if len(value) > 128 or any(
+        not (character.isalnum() or character == "-") for character in value
+    ):
+        raise ConfigurationError(
+            "MS_ENTRA_REQUEST_ID_HEADER must contain only letters, numbers, or '-'"
+        )
+    return value

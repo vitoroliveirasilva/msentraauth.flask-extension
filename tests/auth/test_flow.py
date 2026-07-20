@@ -34,6 +34,10 @@ class RecordingStorage(MemoryStorage):
         self.saved.append((key, value, ttl))
         super().save(key, value, ttl=ttl)
 
+    def take(self, key: str) -> bytes | None:
+        self.deleted.append(key)
+        return super().take(key)
+
     def delete(self, key: str) -> None:
         self.deleted.append(key)
         super().delete(key)
@@ -547,3 +551,68 @@ def test_json_compatibility_accepts_lists_tuples_and_scalars() -> None:
 
     with pytest.raises(StorageError, match="invalid data"):
         flow_module._ensure_json_compatible({1: "bad"})
+
+
+class NonAtomicFlowStorage:
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def load(self, key: str) -> bytes | None:
+        return self.values.get(key)
+
+    def save(self, key: str, value: bytes, *, ttl: int | None = None) -> None:
+        del ttl
+        self.values[key] = value
+
+    def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.values.pop(key, None)
+
+
+def test_complete_login_supports_non_atomic_storage_compatibility_path() -> None:
+    backend = NonAtomicFlowStorage()
+    client = FakeInteractiveClient()
+
+    def factory(
+        resolved: MicrosoftEntraAuthConfig,
+        cache: SerializableTokenCache,
+    ) -> FakeInteractiveClient:
+        del resolved
+        client.cache = cache
+        return client
+
+    service = AuthCodeFlowService(config=config(), storage=backend, client_factory=factory)
+    started = service.begin_login(next_url="/")
+    payload = json.loads(backend.load(f"flow:{started.flow_id}").decode())  # type: ignore[union-attr]
+    state = payload["flow"]["state"]
+
+    result = service.complete_login(
+        flow_id=started.flow_id,
+        auth_response={"code": "code", "state": state},
+    )
+
+    assert result.identity.object_id == "object-id"
+    assert backend.deleted == [f"flow:{started.flow_id}"]
+
+
+def test_non_atomic_storage_missing_flow_does_not_attempt_delete() -> None:
+    backend = NonAtomicFlowStorage()
+    client = FakeInteractiveClient()
+
+    def factory(
+        resolved: MicrosoftEntraAuthConfig,
+        cache: SerializableTokenCache,
+    ) -> FakeInteractiveClient:
+        del resolved, cache
+        return client
+
+    service = AuthCodeFlowService(config=config(), storage=backend, client_factory=factory)
+
+    with pytest.raises(InvalidCallbackError, match="missing, expired, or consumed"):
+        service.complete_login(
+            flow_id="valid-flow-id",
+            auth_response={"code": "code", "state": "state"},
+        )
+
+    assert backend.deleted == []

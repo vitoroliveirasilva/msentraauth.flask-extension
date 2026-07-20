@@ -51,14 +51,23 @@ class MemoryStorage:
         with self._lock:
             self._entries[validated_key] = _Entry(validated_value, expires_at)
 
+    def take(self, key: str) -> bytes | None:
+        # Retorna e remove um valor não expirado
+        validated_key = validate_key(key)
+        with self._lock:
+            entry = self._entries.pop(validated_key, None)
+            if entry is None or self._is_expired(entry):
+                return None
+            return bytes(entry.value)
+
     def delete(self, key: str) -> None:
-        """Delete a value idempotently."""
+        # Deleta um valor imdepotente
         validated_key = validate_key(key)
         with self._lock:
             self._entries.pop(validated_key, None)
 
     def purge_expired(self) -> int:
-        # Remove valores expirados e retorne o número de entradas removidas
+        # Remove valores expirados e retorna o número de entradas removidas
         try:
             now = self._clock()
         except Exception as exc:

@@ -1,21 +1,39 @@
 # Identidade e hooks
 
-## Identidade implementada
+## Identidade
 
-`Identity` representa claims validadas e não é automaticamente o usuário de negócio da aplicação.
-
-Campos principais: `object_id`, `tenant_id`, `subject`, `home_account_id`, `display_name`, `username` e `claims` somente leitura.
-
-A identidade é persistida no servidor após callback válido e restaurada automaticamente no início das requisições. Ela não contém access token, refresh token ou cache.
+`Identity` representa claims validadas, é profundamente imutável e não contém credenciais. `tenant_id` e `object_id` formam a chave estável. Email e username são apenas apresentação.
 
 ## `current_identity`
 
-É request-local e fica disponível após restauração da sessão ou conclusão do callback. Sem autenticação, gera `AuthenticationRequired`.
+É request-local e fica disponível depois da restauração server-side ou da conclusão do callback. Sem autenticação, gera `AuthenticationRequired`.
+
+## `on_authenticated`
+
+Executado depois da validação do provedor e antes da persistência da sessão local.
+
+- Pode vincular a identidade a um cadastro interno;
+- Pode rejeitar explicitamente com `AuthenticationRejected`;
+- Falhas inesperadas viram `LocalBindingError`;
+- Rejeição remove o token cache criado durante o callback;
+- O hook não deve implementar autorização por roles ou groups.
+
+## `on_logout`
+
+Executado depois da remoção de fluxo, identidade e token cache locais. Falha gera `HookExecutionError`, mas não recria a sessão removida.
+
+## `on_error`
+
+Recebe exceções previsíveis uma única vez. É best effort: falhas do observador são contabilizadas e não substituem o erro original.
+
+## `on_event`
+
+Recebe `AuthEvent` imutável e sanitizado. Falhas não interrompem o fluxo principal.
+
+## Escopo e ordem
+
+Hooks pertencem à instância da extensão, são thread-safe, ordenados e idempotentes por callable. Ao reutilizar uma instância em múltiplas aplicações, o registro é compartilhado.
 
 ## Fronteira de autorização
 
-A extensão autentica. Roles, groups, permissões, vínculo com cadastro interno e regras de acesso pertencem à aplicação.
-
-## Hooks futuros
-
-A ETAPA 07 ainda poderá oferecer callbacks como `on_authenticated`, `on_logout` e `on_error`. Nenhum hook público foi iniciado nesta entrega.
+A extensão autentica. A aplicação decide roles, groups, permissões, status do usuário e acesso a recursos.

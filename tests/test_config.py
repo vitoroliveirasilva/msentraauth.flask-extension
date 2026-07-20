@@ -457,3 +457,41 @@ def test_unauthenticated_mode_is_validated(value: object) -> None:
 
     with pytest.raises(ConfigurationError, match="MS_ENTRA_UNAUTHENTICATED_MODE"):
         MicrosoftEntraAuth().init_app(app)
+
+
+@pytest.mark.parametrize("value", ["X Header", "X_Header", "x" * 129])
+def test_request_id_header_rejects_unsafe_values(value: str) -> None:
+    app = create_app()
+    app.config["MS_ENTRA_REQUEST_ID_HEADER"] = value
+
+    with pytest.raises(ConfigurationError, match="REQUEST_ID_HEADER"):
+        MicrosoftEntraAuth().init_app(app)
+
+
+def test_hardening_configuration_is_resolved_and_constructor_overrides_win() -> None:
+    app = create_app()
+    app.config.update(
+        MS_ENTRA_EVENT_LOGGING=False,
+        MS_ENTRA_REQUEST_ID_HEADER="X-App-Request-ID",
+        MS_ENTRA_REQUIRE_ATOMIC_STORAGE=False,
+        MS_ENTRA_STRICT_SECURITY=False,
+    )
+    extension = MicrosoftEntraAuth(
+        event_logging=True,
+        request_id_header="X-Override-ID",
+        require_atomic_storage=True,
+        strict_security=True,
+    )
+    app.secret_key = "x" * 32
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=True,
+    )
+    extension.init_app(app)
+
+    resolved = app.extensions["ms_entra_auth"].config
+    assert resolved.event_logging is True
+    assert resolved.request_id_header == "X-Override-ID"
+    assert resolved.require_atomic_storage is True
+    assert resolved.strict_security is True
