@@ -19,9 +19,7 @@ class ReleaseModule(Protocol):
 
     def verify_tag(self, tag: str | None, version: Version) -> None: ...
 
-    def verify_distributions(
-        self, dist_dir: Path, version: Version
-    ) -> tuple[Path, Path]: ...
+    def verify_distributions(self, dist_dir: Path, version: Version) -> tuple[Path, Path]: ...
 
     def main(self, argv: list[str] | None = None) -> int: ...
 
@@ -90,9 +88,7 @@ def test_distribution_validation_rejects_missing_or_invalid_metadata(
         module.verify_distributions(tmp_path, Version("1.0.0"))
 
 
-def test_cli_failure_is_sanitized(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cli_failure_is_sanitized(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert release_module().main(["--dist-dir", str(tmp_path)]) == 1
     captured = capsys.readouterr()
     assert "release validation failed" in captured.err
@@ -117,9 +113,7 @@ def test_script_executes_from_checkout(tmp_path: Path) -> None:
 
 
 def test_release_workflow_has_manual_test_index_and_release_only_production() -> None:
-    workflow = (
-        Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
-    ).read_text()
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "release.yml").read_text()
     assert "workflow_dispatch:" in workflow
     assert "release:" in workflow
     assert "environment:\n      name: testpypi" in workflow

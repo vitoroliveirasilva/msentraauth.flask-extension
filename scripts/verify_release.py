@@ -19,12 +19,7 @@ def verify_version(version_text: str) -> Version:
         version = Version(version_text)
     except InvalidVersion as exc:
         raise ValueError("package version is not PEP 440 compatible") from exc
-    if (
-        version.is_prerelease
-        or version.is_devrelease
-        or version.is_postrelease
-        or version.local
-    ):
+    if version.is_prerelease or version.is_devrelease or version.is_postrelease or version.local:
         raise ValueError("release version must be a stable public version")
     if len(version.release) != 3 or str(version) != version_text:
         raise ValueError("release version must use normalized MAJOR.MINOR.PATCH")
@@ -47,9 +42,7 @@ def verify_distributions(dist_dir: Path, version: Version) -> tuple[Path, Path]:
     wheels = sorted(dist_dir.glob(wheel_pattern))
     sdists = sorted(dist_dir.glob(sdist_pattern))
     if len(wheels) != 1 or len(sdists) != 1:
-        raise ValueError(
-            "dist must contain exactly one matching wheel and one matching sdist"
-        )
+        raise ValueError("dist must contain exactly one matching wheel and one matching sdist")
 
     with ZipFile(wheels[0]) as wheel:
         metadata_name = next(
