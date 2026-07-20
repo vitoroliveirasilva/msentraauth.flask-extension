@@ -1,33 +1,42 @@
 # MS Entra Auth para Flask
 
+[![PyPI](https://img.shields.io/pypi/v/flask-ms-entra-auth.svg)](https://pypi.org/project/flask-ms-entra-auth/)
+[![Python](https://img.shields.io/pypi/pyversions/flask-ms-entra-auth.svg)](https://pypi.org/project/flask-ms-entra-auth/)
+[![CI](https://github.com/vitoroliveirasilva/msentraauth.flask-extension/actions/workflows/ci.yml/badge.svg?branch=prod)](https://github.com/vitoroliveirasilva/msentraauth.flask-extension/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/flask-ms-entra-auth.svg)](LICENSE)
+
 Extensão Flask reutilizável e estável, para integrar aplicações web ao Microsoft Entra ID por meio do MSAL. O projeto prioriza application factory, estado server-side, identidade imutável, storage substituível, fluxo observável e contratos de segurança explícitos.
 
 ## Estado atual
 
-O plano mestre está concluído tecnicamente. A versão `1.0.0` fornece autenticação web Microsoft Entra ID para aplicações Flask, com storage substituível, identidade imutável, fluxo MSAL server-side, hooks, auditoria e hardening.
+A versão `1.0.0` está publicada no [PyPI](https://pypi.org/project/flask-ms-entra-auth/) e fornece autenticação web Microsoft Entra ID para aplicações Flask, com storage substituível, identidade imutável, fluxo MSAL server-side, hooks, auditoria e hardening.
 
-| Componente                            |
-| ------------------------------------- |
-| Núcleo, configuração e storage        |
-| Identidade, MSAL e token cache        |
-| Login, callback, rotas e logout local |
-| Hooks, observabilidade e hardening    |
-| Template consumidor com Redis e Graph |
-| Gate de TestPyPI/PyPI                 |
+| Componente                               |
+| ---------------------------------------- |
+| Núcleo, configuração e storage           |
+| Identidade, MSAL e token cache           |
+| Login, callback, rotas e logout local    |
+| Hooks, observabilidade e hardening       |
+| Template consumidor com Redis e Graph    |
+| Publicação PyPI por Trusted Publishing   |
 
 O status detalhado está em [`docs/implementation/status.md`](docs/implementation/status.md).
 
 ## Instalação
 
-Após a publicação no índice escolhido:
+Requer Python 3.11 ou superior.
 
 ```bash
 python -m pip install "flask-ms-entra-auth>=1.0,<2"
 ```
 
-## Instalação para desenvolvimento
+Para fixar exatamente a primeira versão estável:
 
-Requer Python 3.11 ou superior.
+```bash
+python -m pip install "flask-ms-entra-auth==1.0.0"
+```
+
+## Instalação para desenvolvimento
 
 ```bash
 python -m venv .venv
@@ -238,9 +247,8 @@ Remove-Item Env:DIST_DIR
 
 ## Release e compatibilidade
 
-O repositório inclui gate de release, validação de tag e workflows separados para TestPyPI e PyPI por Trusted Publishing. Consulte o [checklist](docs/18_RELEASE_CHECKLIST.md) e o [guia de publicação](docs/19_TESTPYPI_E_PYPI.md).
-
-O consumidor de referência está em `msentraauth.flask-template` e valida a série `1.x` com Redis, Microsoft Graph, frontend, health checks e Docker.
+- O repositório inclui gate de release, validação de tag e workflows separados para TestPyPI e PyPI por Trusted Publishing;
+- O consumidor de referência está em [`msentraauth.flask-template`](https://github.com/vitoroliveirasilva/msentraauth.flask-template) e valida a série `1.x` com Redis, Microsoft Graph, frontend, health checks e Docker.
 
 ## Limites atuais
 
@@ -250,7 +258,6 @@ O consumidor de referência está em `msentraauth.flask-template` e valida a sé
 - `MemoryStorage` não é seguro para produção;
 - Redis, Graph, interface e deploy permanecem no template consumidor;
 - Logout local não encerra todas as sessões Microsoft;
-
 - Publicação em índices externos nunca ocorre sem ação explícita do mantenedor.
 
 Consulte o [threat model](docs/17_THREAT_MODEL.md) antes de usar a extensão em produção.
