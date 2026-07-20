@@ -49,6 +49,9 @@ dev = [
 Documentation = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/tree/prod/docs"
 Issues = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/issues"
 Repository = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension"
+PyPI = "https://pypi.org/project/flask-ms-entra-auth/"
+Changelog = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/blob/prod/CHANGELOG.md"
+Security = "https://github.com/vitoroliveirasilva/msentraauth.flask-extension/blob/prod/SECURITY.md"
 
 [tool.hatch.version]
 path = "src/flask_ms_entra_auth/_version.py"
