@@ -1,0 +1,1 @@
+Caso surjam novas etapas de desenvolvimento no futuro, aqui poderão ser descritos os critérios de aceite.
