@@ -95,9 +95,7 @@ class AuthCodeFlowService:
                 self._storage.delete(key)
 
         if payload is None:
-            raise InvalidCallbackError(
-                "authentication flow is missing, expired, or consumed"
-            )
+            raise InvalidCallbackError("authentication flow is missing, expired, or consumed")
 
         # Consome antes da redenção para que tentativas de repetição e callbacks simultâneos não possam reproduzi-lo
         flow, next_url = _deserialize_flow(payload)
