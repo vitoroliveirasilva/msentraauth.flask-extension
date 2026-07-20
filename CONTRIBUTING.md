@@ -25,9 +25,9 @@ python -m pip install -e ".[dev]"
 ```bash
 ruff check .
 ruff format --check .
-mypy src tests
+mypy src tests scripts
 pytest
-bandit -c pyproject.toml -r src
+bandit -c pyproject.toml -r src scripts
 pip-audit .
 python -m build
 python -m twine check dist/*

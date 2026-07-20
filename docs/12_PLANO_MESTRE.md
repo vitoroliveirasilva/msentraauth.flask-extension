@@ -36,10 +36,10 @@ Autenticação, logout, erros, eventos e vínculo local.
 
 Threat model, logs sanitizados, consumo atômico distribuído opcional, auditoria de postura, falhas de storage e revisão de API.
 
-## Etapa 09: template
+## Etapa 09: template (Concluída)
 
-Dependência local, Redis no template, Graph e testes cruzados.
+Dependência normal e editável, Redis no template, Graph, operação e testes cruzados.
 
-## Etapa 10: publicação
+## Etapa 10: publicação (Concluída)
 
-Documentação final, TestPyPI, validação de consumidor e publicação.
+Documentação final, gate de release, TestPyPI/PyPI por Trusted Publishing e validação do consumidor. A publicação externa exige acionamento explícito do mantenedor.

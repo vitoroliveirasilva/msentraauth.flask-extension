@@ -2,33 +2,30 @@
 
 ## Esquema
 
-SemVer: `MAJOR.MINOR.PATCH`.
-
-A série `0.x` é experimental. As ETAPAS 07 e 08 formam uma evolução funcional e elevam a versão de `0.5.0` para `0.6.0`.
+A versão `1.0.0` estabelece o primeiro contrato público estável e mudanças incompatíveis exigem nova versão major.
 
 ## Fonte única
 
-`src/flask_ms_entra_auth/_version.py` é lido pelo Hatchling e exportado como `__version__`.
+`src/flask_ms_entra_auth/_version.py` é lido pelo Hatchling, exportado como `__version__` e comparado ao metadata instalado.
 
-## Artefatos
-
-- Source distribution;
-- Wheel universal Python 3;
-- `py.typed`;
-- Hooks, observabilidade e auditoria;
-- Threat model, ADRs, documentação e testes.
-
-## Processo
+## Gate
 
 1. Ruff;
 2. mypy estrito;
 3. pytest com 100% de linhas e branches;
-4. Bandit;
-5. pip-audit;
-6. build isolado;
-7. `twine check`;
-8. inspeção de wheel e sdist;
-9. instalação limpa do wheel;
-10. smoke test sem rede.
+4. Bandit e pip-audit;
+5. Build isolado;
+6. `twine check`;
+7. Inspeção de wheel e sdist;
+8. `scripts/verify_release.py`;
+9. Instalação limpa do wheel;
+10. Validação do template consumidor.
 
-TestPyPI, tag, release e PyPI permanecem fora do escopo.
+## Publicação
+
+- TestPyPI: execução manual do workflow `Release`;
+- PyPI: publicação de GitHub Release com tag `vMAJOR.MINOR.PATCH`;
+- Credencial: Trusted Publishing por OIDC;
+- Artefato: a mesma dupla de wheel e sdist atravessa todos os jobs;
+
+Consulte [Checklist de release](18_RELEASE_CHECKLIST.md) e [TestPyPI/PyPI](19_TESTPYPI_E_PYPI.md).

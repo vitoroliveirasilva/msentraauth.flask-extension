@@ -1,18 +1,15 @@
 # Changelog
 
-## Segurança
+## 1.0.0
 
-- Backends distribuídos podem garantir consumo único sem janela entre `load()` e `delete()`;
-- `MS_ENTRA_REQUIRE_ATOMIC_STORAGE=True` impede inicialização com backend sem garantia nativa;
-- `MS_ENTRA_STRICT_SECURITY=True` bloqueia achados de severidade `error`;
-- Auditoria verifica segredo de sessão, flags de cookie, storage em memória e consumo atômico;
-- Eventos e logs não incluem tokens, auth code, claims, client secret, chave de storage ou payload bruto;
-- Falhas de hooks de erro e evento nunca substituem o comportamento original;
-- Rejeição pelo sistema local ocorre antes da persistência da identidade no navegador.
+### Segurança
 
-## Limites
+- Publicação usa OIDC e não armazena API token no repositório;
+- Tag de produção deve corresponder exatamente ao metadata do pacote;
+- TestPyPI é manual e PyPI depende de GitHub Release protegida;
+- Os mesmos artefatos imutáveis são validados e publicados.
 
-- `MemoryStorage` continua inadequado para produção e não compartilha estado entre processos;
-- A política do token cache continua last-write-wins, sem CAS distribuído;
-- Hooks não implementam autorização, transação de banco ou rollback automático;
-- Redis oficial, template consumidor, Graph e publicação permanecem fora desta versão.
+### Limites
+
+- Trusted Publishers e environments precisam ser configurados pelo mantenedor;
+- A extensão continua sem Redis, Graph, UI ou autorização de negócio embutidos.

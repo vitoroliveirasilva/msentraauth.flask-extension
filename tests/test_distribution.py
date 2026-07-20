@@ -51,17 +51,22 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert "flask_ms_entra_auth/web/routes.py" in names
         assert "flask_ms_entra_auth/web/session.py" in names
         assert "flask_ms_entra_auth/web/urls.py" in names
-        metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
+        metadata_name = next(
+            name for name in names if name.endswith(".dist-info/METADATA")
+        )
         metadata = wheel.read(metadata_name).decode()
         assert f"Version: {__version__}" in metadata
         assert "Requires-Python: >=3.11" in metadata
         assert "requires-dist: flask<3.2,>=3.1" in metadata.lower()
         assert "Requires-Dist: msal<2,>=1.37" in metadata
+        assert "Development Status :: 5 - Production/Stable" in metadata
 
     with tarfile.open(sdists[0], "r:gz") as sdist:
         names = set(sdist.getnames())
         assert any(name.endswith("/src/flask_ms_entra_auth/py.typed") for name in names)
-        assert any(name.endswith("/src/flask_ms_entra_auth/config.py") for name in names)
+        assert any(
+            name.endswith("/src/flask_ms_entra_auth/config.py") for name in names
+        )
         assert any(name.endswith("/pyproject.toml") for name in names)
         assert any(name.endswith("/tests/test_config.py") for name in names)
         assert any(name.endswith("/tests/test_storage.py") for name in names)
@@ -76,6 +81,11 @@ def test_build_generated_valid_wheel_and_sdist() -> None:
         assert any(name.endswith("/tests/test_security.py") for name in names)
         assert any(name.endswith("/tests/test_storage_atomic.py") for name in names)
         assert any(name.endswith("/docs/17_THREAT_MODEL.md") for name in names)
+        assert any(name.endswith("/.github/workflows/release.yml") for name in names)
+        assert any(name.endswith("/scripts/verify_release.py") for name in names)
+        assert any(name.endswith("/tests/test_release.py") for name in names)
+        assert any(name.endswith("/docs/18_RELEASE_CHECKLIST.md") for name in names)
+        assert any(name.endswith("/docs/19_TESTPYPI_E_PYPI.md") for name in names)
         assert any(
             name.endswith("/docs/decisoes/016_HOOKS_ORDENADOS_E_FALHAS_ISOLADAS.md")
             for name in names

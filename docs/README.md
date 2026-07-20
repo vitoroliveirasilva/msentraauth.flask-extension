@@ -17,5 +17,7 @@
 15. [Glossário](15_GLOSSARIO.md)
 16. [Referências](16_REFERENCIAS.md)
 17. [Threat model](17_THREAT_MODEL.md)
+18. [Release Checklist](18_RELEASE_CHECKLIST.md)
+19. [TestPyPi e PyPi](19_TESTPYPI_E_PYPI.md)
 
 Consulte também os [ADRs](decisoes/README.md) e o [status de implementação](implementation/status.md).
