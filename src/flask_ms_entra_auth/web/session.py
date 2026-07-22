@@ -96,13 +96,21 @@ class WebSessionManager:
             except StorageError:
                 validated_old_session_id = None
 
+        new_identity_key = _identity_key(session_id)
         self._storage.save(
-            _identity_key(session_id),
+            new_identity_key,
             payload,
             ttl=self._config.identity_ttl,
         )
         if validated_old_session_id is not None:
-            self._storage.delete(_identity_key(validated_old_session_id))
+            try:
+                self._storage.delete(_identity_key(validated_old_session_id))
+            except Exception as exc:
+                try:
+                    self._storage.delete(new_identity_key)
+                except Exception:
+                    exc.add_note("new identity cleanup also failed")
+                raise
         self._write_metadata({"session_id": session_id})
         bind_identity(identity)
 
@@ -120,7 +128,8 @@ class WebSessionManager:
             self._write_metadata({})
             return None
 
-        payload = self._storage.load(_identity_key(validated_session_id))
+        identity_key = _identity_key(validated_session_id)
+        payload = self._storage.load(identity_key)
         if payload is None:
             self._write_metadata({})
             return None
@@ -130,8 +139,12 @@ class WebSessionManager:
                 payload,
                 expected_tenant_id=self._config.tenant_id,
             )
-        except StorageError:
+        except StorageError as exc:
             self._write_metadata({})
+            try:
+                self._storage.delete(identity_key)
+            except Exception:
+                exc.add_note("corrupt identity cleanup also failed")
             raise
         bind_identity(identity)
         return identity

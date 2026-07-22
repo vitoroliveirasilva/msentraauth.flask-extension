@@ -9,7 +9,9 @@
 - Fluxos e identidades server-side possuem limite explícito de tamanho e rejeitam números JSON não finitos;
 - Claims excessivamente aninhadas são recusadas antes de atingir recursão não controlada;
 - Respostas das rotas de autenticação desabilitam cache e envio de referer;
-- O cache MSAL possui limite explícito de payload antes da desserialização e persistência.
+- O cache MSAL possui limite explícito de payload antes da desserialização e persistência;
+- Campos estruturais da identidade devem coincidir com `oid` e `tid` quando essas claims estiverem presentes;
+- Variações de nomes de claims sensíveis, como `refreshToken` ou `client-secret`, também são rejeitadas.
 
 ### Robustez
 
@@ -18,7 +20,11 @@
 - Uma referência antiga inválida não impede o estabelecimento de uma nova sessão autenticada;
 - Relógios inválidos ou não finitos são rejeitados pelo storage em memória;
 - Falhas ao serializar ou persistir uma nova identidade preservam a sessão autenticada anterior;
-- Falhas secundárias de persistência do cache não ocultam o erro principal de autenticação.
+- Falhas secundárias de persistência do cache não ocultam o erro principal de autenticação;
+- Falhas de relógio durante `take()` não removem valores válidos e TTLs que excedam o intervalo numérico falham de forma controlada;
+- A rotação de sessão remove o novo payload quando a referência anterior não pode ser revogada;
+- Identidades persistidas corrompidas são removidas do storage após a invalidação da referência local;
+- Contas MSAL duplicadas e access tokens compostos apenas por espaços são recusados.
 
 ## 1.0.0
 

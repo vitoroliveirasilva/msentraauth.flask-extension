@@ -43,12 +43,7 @@ class MemoryStorage:
         validated_key = validate_key(key)
         validated_value = validate_value(value)
         validated_ttl = validate_ttl(ttl)
-
-        expires_at = (
-            None
-            if validated_ttl is None
-            else self._clock_value("storage expiration calculation failed") + validated_ttl
-        )
+        expires_at = self._expiration_time(validated_ttl)
 
         with self._lock:
             self._entries[validated_key] = _Entry(validated_value, expires_at)
@@ -57,9 +52,13 @@ class MemoryStorage:
         # Retorna e remove um valor não expirado
         validated_key = validate_key(key)
         with self._lock:
-            entry = self._entries.pop(validated_key, None)
-            if entry is None or self._is_expired(entry):
+            entry = self._entries.get(validated_key)
+            if entry is None:
                 return None
+            if self._is_expired(entry):
+                self._entries.pop(validated_key, None)
+                return None
+            self._entries.pop(validated_key, None)
             return bytes(entry.value)
 
     def delete(self, key: str) -> None:
@@ -86,6 +85,19 @@ class MemoryStorage:
         if entry.expires_at is None:
             return False
         return entry.expires_at <= self._clock_value("storage expiration check failed")
+
+    def _expiration_time(self, ttl: int | None) -> float | None:
+        if ttl is None:
+            return None
+        try:
+            expires_at = self._clock_value("storage expiration calculation failed") + ttl
+            if not isfinite(expires_at):
+                raise ValueError("storage expiration must be finite")
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise StorageError("storage expiration calculation failed") from exc
+        return expires_at
 
     def _clock_value(self, error_message: str) -> float:
         try:

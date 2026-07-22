@@ -96,11 +96,16 @@ def _persist_cache_after_failure(
 
 
 def _select_account(accounts: Sequence[MsalAccount], home_account_id: str) -> MsalAccount:
+    matches: list[MsalAccount] = []
     for account in accounts:
         candidate = account.get("home_account_id")
         if isinstance(candidate, str) and candidate == home_account_id:
-            return account
-    raise AuthenticationRequired("no matching MSAL account is available")
+            matches.append(account)
+    if not matches:
+        raise AuthenticationRequired("no matching MSAL account is available")
+    if len(matches) != 1:
+        raise AuthenticationRequired("multiple matching MSAL accounts are available")
+    return matches[0]
 
 
 def _access_token_from_result(result: MsalResult | None) -> str:
@@ -118,7 +123,7 @@ def _access_token_from_result(result: MsalResult | None) -> str:
         )
 
     access_token = result.get("access_token")
-    if not isinstance(access_token, str) or not access_token:
+    if not isinstance(access_token, str) or not access_token.strip():
         raise TokenAcquisitionError("MSAL returned no access token")
     return access_token
 

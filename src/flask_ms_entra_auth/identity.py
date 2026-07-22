@@ -5,16 +5,17 @@ from dataclasses import dataclass, field
 from math import isfinite
 from types import MappingProxyType
 from typing import Final
+from unicodedata import normalize
 
 from .errors import IdentityValidationError
 
 _FORBIDDEN_CLAIM_KEYS: Final = frozenset(
     {
-        "access_token",
-        "client_secret",
-        "id_token",
-        "refresh_token",
-        "token_cache",
+        "accesstoken",
+        "clientsecret",
+        "idtoken",
+        "refreshtoken",
+        "tokencache",
     }
 )
 _MAX_CLAIM_DEPTH: Final = 12
@@ -33,8 +34,14 @@ class Identity:
     claims: Mapping[str, object] = field(default_factory=dict, compare=True)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "object_id", _required_text("oid", self.object_id))
-        object.__setattr__(self, "tenant_id", _required_text("tid", self.tenant_id))
+        object_id = _required_text("oid", self.object_id)
+        tenant_id = _required_text("tid", self.tenant_id)
+        frozen_claims = _freeze_claims(self.claims)
+        _validate_core_claim(frozen_claims, "oid", object_id)
+        _validate_core_claim(frozen_claims, "tid", tenant_id)
+
+        object.__setattr__(self, "object_id", object_id)
+        object.__setattr__(self, "tenant_id", tenant_id)
         object.__setattr__(
             self,
             "home_account_id",
@@ -47,7 +54,7 @@ class Identity:
             "username",
             _optional_text("preferred_username", self.username),
         )
-        object.__setattr__(self, "claims", _freeze_claims(self.claims))
+        object.__setattr__(self, "claims", frozen_claims)
 
     @classmethod
     def from_claims(
@@ -85,6 +92,16 @@ class Identity:
     def __repr__(self) -> str:
         # Retorna a representação da identidade sem expor claims ou dados pessoais
         return "Identity(authenticated=True)"
+
+
+def _validate_core_claim(claims: Mapping[str, object], key: str, expected: str) -> None:
+    if key not in claims:
+        return
+    actual = _required_claim_text(claims, key)
+    if actual.casefold() != expected.casefold():
+        raise IdentityValidationError(
+            f"identity claim '{key}' does not match the validated identity field"
+        )
 
 
 def _required_claim_text(claims: Mapping[str, object], key: str) -> str:
@@ -144,7 +161,7 @@ def _freeze_claims(claims: Mapping[str, object]) -> Mapping[str, object]:
     for key, value in claims.items():
         if not isinstance(key, str) or not key:
             raise IdentityValidationError("identity claim names must be non-empty strings")
-        if key.casefold() in _FORBIDDEN_CLAIM_KEYS:
+        if _is_forbidden_claim_key(key):
             raise IdentityValidationError("identity claims must not contain credentials")
         frozen[key] = _freeze_claim_value(value, depth=1)
     return MappingProxyType(frozen)
@@ -164,10 +181,16 @@ def _freeze_claim_value(value: object, *, depth: int) -> object:
                 raise IdentityValidationError(
                     "nested identity claim names must be non-empty strings"
                 )
-            if key.casefold() in _FORBIDDEN_CLAIM_KEYS:
+            if _is_forbidden_claim_key(key):
                 raise IdentityValidationError("identity claims must not contain credentials")
             nested[key] = _freeze_claim_value(item, depth=depth + 1)
         return MappingProxyType(nested)
     if isinstance(value, list | tuple):
         return tuple(_freeze_claim_value(item, depth=depth + 1) for item in value)
     raise IdentityValidationError("identity claims must contain only JSON-compatible values")
+
+
+def _is_forbidden_claim_key(key: str) -> bool:
+    normalized = normalize("NFKC", key).casefold()
+    canonical = "".join(character for character in normalized if character.isalnum())
+    return canonical in _FORBIDDEN_CLAIM_KEYS

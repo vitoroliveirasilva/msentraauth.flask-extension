@@ -38,7 +38,8 @@ Risco residual: backend sem atomicidade pode permitir janela entre leitura e rem
 ### Roubo ou exposição de credenciais
 
 - Cookie contém referências, não tokens;
-- Identidade rejeita chaves de credencial em qualquer nível de claims aninhadas;
+- Identidade rejeita chaves de credencial em qualquer nível de claims aninhadas, inclusive variações de separadores e capitalização;
+- `oid` e `tid` persistidos não podem divergir das claims estruturais correspondentes;
 - Cache é serializado pelo MSAL;
 - Logging e eventos usam campos fechados;
 - Mensagens públicas não copiam payloads;
@@ -70,6 +71,7 @@ Risco residual: regras de domínio e transações pertencem à aplicação.
 - Auditoria de `SECRET_KEY`, HttpOnly, SameSite e Secure;
 - Referência rotacionada após login;
 - Uma nova identidade é serializada e persistida antes da revogação da referência anterior;
+- Se a revogação anterior falhar, o novo payload é removido e a sessão existente permanece ativa;
 - Logout remove somente a sessão atual;
 - Referências internas inválidas são descartadas sem manter o navegador preso a estado corrompido;
 - Modo estrito bloqueia erros de postura.
@@ -83,9 +85,12 @@ Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consu
 - TTL e namespace;
 - Capacidade atômica detectável;
 - Payloads de fluxo, identidade e token cache possuem limite de tamanho antes de persistência ou decode;
-- Relógios não finitos ou de tipo inválido são recusados pelo `MemoryStorage`;
-- Identidades corrompidas removem a referência local para evitar falha persistente em toda requisição;
+- Relógios não finitos, tipos inválidos e overflow de expiração são recusados pelo `MemoryStorage`;
+- Falhas de relógio durante consumo atômico em memória não removem antecipadamente o valor;
+- Identidades corrompidas removem a referência local e o payload inválido do storage;
 - Falha secundária ao persistir cache não substitui o erro principal de autenticação;
+- Seleção silenciosa rejeita múltiplas contas com o mesmo `home_account_id`;
+- Tokens vazios ou compostos apenas por espaços não são aceitos como credenciais válidas;
 - Token cache last-write-wins explicitado.
 
 Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcleo.
