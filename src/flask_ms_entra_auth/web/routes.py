@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from flask import Blueprint, Response, redirect, request
 from flask.typing import ResponseReturnValue
+from werkzeug.wrappers import Response as WerkzeugResponse
 
 from ..errors import (
     AuthenticationCancelled,
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from ..extension import MicrosoftEntraAuth
 
 _BLUEPRINT_NAME = "ms_entra_auth"
+_ResponseT = TypeVar("_ResponseT", bound=WerkzeugResponse)
 
 
 def create_auth_blueprint(
@@ -38,7 +40,7 @@ def create_auth_blueprint(
     @blueprint.get("/login")
     def login() -> ResponseReturnValue:
         return _execute_route(
-            lambda: redirect(extension.begin_login(next_url=_single_query_value("next"))),
+            lambda: _secure_redirect(extension.begin_login(next_url=_single_query_value("next"))),
             extension=extension,
             handle_errors=config.handle_route_errors,
         )
@@ -47,7 +49,7 @@ def create_auth_blueprint(
     def callback() -> ResponseReturnValue:
         def complete() -> ResponseReturnValue:
             result = extension.complete_login(_single_value_query())
-            return redirect(result.next_url)
+            return _secure_redirect(result.next_url)
 
         return _execute_route(
             complete,
@@ -58,7 +60,7 @@ def create_auth_blueprint(
     @blueprint.post("/logout")
     def logout() -> ResponseReturnValue:
         return _execute_route(
-            lambda: redirect(extension.logout()),
+            lambda: _secure_redirect(extension.logout()),
             extension=extension,
             handle_errors=config.handle_route_errors,
         )
@@ -104,9 +106,22 @@ def _execute_route(
         return _safe_error_response(exc)
 
 
+def _secure_redirect(location: str) -> WerkzeugResponse:
+    return _apply_security_headers(redirect(location))
+
+
 def _safe_error_response(error: MicrosoftEntraAuthError) -> Response:
     status, message = _error_status_and_message(error)
-    return Response(message, status=status, content_type="text/plain; charset=utf-8")
+    response = Response(message, status=status, content_type="text/plain; charset=utf-8")
+    return _apply_security_headers(response)
+
+
+def _apply_security_headers(response: _ResponseT) -> _ResponseT:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _error_status_and_message(error: MicrosoftEntraAuthError) -> tuple[int, str]:

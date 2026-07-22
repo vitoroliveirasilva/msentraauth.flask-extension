@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from math import isfinite
 from threading import RLock
 from time import monotonic
 
@@ -43,10 +44,11 @@ class MemoryStorage:
         validated_value = validate_value(value)
         validated_ttl = validate_ttl(ttl)
 
-        try:
-            expires_at = None if validated_ttl is None else self._clock() + validated_ttl
-        except Exception as exc:
-            raise StorageError("storage expiration calculation failed") from exc
+        expires_at = (
+            None
+            if validated_ttl is None
+            else self._clock_value("storage expiration calculation failed") + validated_ttl
+        )
 
         with self._lock:
             self._entries[validated_key] = _Entry(validated_value, expires_at)
@@ -68,10 +70,7 @@ class MemoryStorage:
 
     def purge_expired(self) -> int:
         # Remove valores expirados e retorna o número de entradas removidas
-        try:
-            now = self._clock()
-        except Exception as exc:
-            raise StorageError("storage expiration cleanup failed") from exc
+        now = self._clock_value("storage expiration cleanup failed")
 
         with self._lock:
             expired = [
@@ -86,7 +85,13 @@ class MemoryStorage:
     def _is_expired(self, entry: _Entry) -> bool:
         if entry.expires_at is None:
             return False
+        return entry.expires_at <= self._clock_value("storage expiration check failed")
+
+    def _clock_value(self, error_message: str) -> float:
         try:
-            return entry.expires_at <= self._clock()
+            value = self._clock()
+            if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
+                raise ValueError("storage clock must return a finite number")
         except Exception as exc:
-            raise StorageError("storage expiration check failed") from exc
+            raise StorageError(error_message) from exc
+        return float(value)

@@ -4,11 +4,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from msal import SerializableTokenCache  # type: ignore[import-untyped]
+
 from ..config import MicrosoftEntraAuthConfig
 from ..errors import (
     AuthenticationRequired,
     ConsentRequired,
     ProviderUnavailableError,
+    StorageError,
     TokenAcquisitionError,
 )
 from ..storage import AuthStorage
@@ -48,19 +51,48 @@ class MsalService:
                 account,
                 force_refresh=force_refresh,
             )
-        except (AuthenticationRequired, ConsentRequired, TokenAcquisitionError):
-            raise
-        except Exception as exc:
-            raise ProviderUnavailableError("Microsoft identity provider is unavailable") from exc
-        finally:
-            persist_token_cache(
+            token = _access_token_from_result(result)
+        except (AuthenticationRequired, ConsentRequired, TokenAcquisitionError) as exc:
+            _persist_cache_after_failure(
                 self.storage,
                 home_account_id,
                 cache,
                 ttl=self.config.token_cache_ttl,
+                primary_error=exc,
             )
+            raise
+        except Exception as exc:
+            provider_error = ProviderUnavailableError("Microsoft identity provider is unavailable")
+            _persist_cache_after_failure(
+                self.storage,
+                home_account_id,
+                cache,
+                ttl=self.config.token_cache_ttl,
+                primary_error=provider_error,
+            )
+            raise provider_error from exc
 
-        return _access_token_from_result(result)
+        persist_token_cache(
+            self.storage,
+            home_account_id,
+            cache,
+            ttl=self.config.token_cache_ttl,
+        )
+        return token
+
+
+def _persist_cache_after_failure(
+    storage: AuthStorage,
+    home_account_id: str,
+    cache: SerializableTokenCache,
+    *,
+    ttl: int,
+    primary_error: Exception,
+) -> None:
+    try:
+        persist_token_cache(storage, home_account_id, cache, ttl=ttl)
+    except StorageError:
+        primary_error.add_note("token cache persistence also failed")
 
 
 def _select_account(accounts: Sequence[MsalAccount], home_account_id: str) -> MsalAccount:

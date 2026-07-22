@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from typing import Final
 
 from msal import SerializableTokenCache  # type: ignore[import-untyped]
 
 from ..errors import StorageError
 from ..storage import AuthStorage
+
+_MAX_TOKEN_CACHE_PAYLOAD_BYTES: Final = 4_194_304
 
 
 def load_token_cache(storage: AuthStorage, home_account_id: str) -> SerializableTokenCache:
@@ -14,6 +17,8 @@ def load_token_cache(storage: AuthStorage, home_account_id: str) -> Serializable
     serialized = storage.load(token_cache_key(home_account_id))
     if serialized is None:
         return cache
+    if len(serialized) > _MAX_TOKEN_CACHE_PAYLOAD_BYTES:
+        raise StorageError("token cache exceeds the supported storage size")
 
     try:
         cache.deserialize(serialized.decode("utf-8"))
@@ -34,9 +39,15 @@ def persist_token_cache(
         return False
 
     try:
-        serialized = cache.serialize().encode("utf-8")
+        serialized_text = cache.serialize()
+        if not isinstance(serialized_text, str):
+            raise TypeError("token cache serialization must return text")
+        serialized = serialized_text.encode("utf-8")
     except (TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("token cache could not be serialized") from exc
+    if len(serialized) > _MAX_TOKEN_CACHE_PAYLOAD_BYTES:
+        raise StorageError("token cache exceeds the supported storage size")
+
     storage.save(token_cache_key(home_account_id), serialized, ttl=ttl)
     return True
 

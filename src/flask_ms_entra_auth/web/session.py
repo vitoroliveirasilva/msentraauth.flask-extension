@@ -85,24 +85,24 @@ class WebSessionManager:
             raise TypeError(msg)
         self.require_secure_session()
 
+        payload = _serialize_identity(identity)
+        session_id = token_urlsafe(_SESSION_ID_BYTES)
         metadata = self._metadata()
         old_session_id = metadata.get("session_id")
+        validated_old_session_id: str | None = None
         if isinstance(old_session_id, str):
-            validated_old_session_id: str | None
             try:
                 validated_old_session_id = _validate_session_identifier(old_session_id)
             except StorageError:
                 validated_old_session_id = None
-            if validated_old_session_id is not None:
-                self._storage.delete(_identity_key(validated_old_session_id))
 
-        session_id = token_urlsafe(_SESSION_ID_BYTES)
-        payload = _serialize_identity(identity)
         self._storage.save(
             _identity_key(session_id),
             payload,
             ttl=self._config.identity_ttl,
         )
+        if validated_old_session_id is not None:
+            self._storage.delete(_identity_key(validated_old_session_id))
         self._write_metadata({"session_id": session_id})
         bind_identity(identity)
 

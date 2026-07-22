@@ -41,7 +41,8 @@ Risco residual: backend sem atomicidade pode permitir janela entre leitura e rem
 - Identidade rejeita chaves de credencial em qualquer nível de claims aninhadas;
 - Cache é serializado pelo MSAL;
 - Logging e eventos usam campos fechados;
-- Mensagens públicas não copiam payloads.
+- Mensagens públicas não copiam payloads;
+- Respostas de login, callback, logout e erro desabilitam cache e envio de referer.
 
 Risco residual: causa de exceção externa pode conter dados sensíveis e não deve ser logada sem filtragem.
 
@@ -50,7 +51,8 @@ Risco residual: causa de exceção externa pode conter dados sensíveis e não d
 - Destinos são validados antes de iniciar o fluxo;
 - O destino persistido é validado novamente após ser carregado do storage;
 - URLs absolutas exigem HTTPS e host explicitamente permitido;
-- Fragmentos, credenciais embutidas e caminhos ambíguos são rejeitados.
+- Fragmentos, credenciais embutidas e caminhos ambíguos são rejeitados;
+- A resposta do callback usa `Referrer-Policy: no-referrer` para não encaminhar auth code ou state ao destino seguinte.
 
 Risco residual: a aplicação consumidora precisa manter a allowlist de hosts mínima e correta.
 
@@ -67,6 +69,7 @@ Risco residual: regras de domínio e transações pertencem à aplicação.
 
 - Auditoria de `SECRET_KEY`, HttpOnly, SameSite e Secure;
 - Referência rotacionada após login;
+- Uma nova identidade é serializada e persistida antes da revogação da referência anterior;
 - Logout remove somente a sessão atual;
 - Referências internas inválidas são descartadas sem manter o navegador preso a estado corrompido;
 - Modo estrito bloqueia erros de postura.
@@ -79,8 +82,10 @@ Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consu
 - Causa preservada sem exposição pública;
 - TTL e namespace;
 - Capacidade atômica detectável;
-- Payloads de fluxo e identidade possuem limite de tamanho antes de serialização ou decode;
+- Payloads de fluxo, identidade e token cache possuem limite de tamanho antes de persistência ou decode;
+- Relógios não finitos ou de tipo inválido são recusados pelo `MemoryStorage`;
 - Identidades corrompidas removem a referência local para evitar falha persistente em toda requisição;
+- Falha secundária ao persistir cache não substitui o erro principal de autenticação;
 - Token cache last-write-wins explicitado.
 
 Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcleo.
