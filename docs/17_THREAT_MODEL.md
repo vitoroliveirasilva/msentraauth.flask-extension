@@ -38,12 +38,21 @@ Risco residual: backend sem atomicidade pode permitir janela entre leitura e rem
 ### Roubo ou exposição de credenciais
 
 - Cookie contém referências, não tokens;
-- Identidade não contém access token;
+- Identidade rejeita chaves de credencial em qualquer nível de claims aninhadas;
 - Cache é serializado pelo MSAL;
 - Logging e eventos usam campos fechados;
 - Mensagens públicas não copiam payloads.
 
 Risco residual: causa de exceção externa pode conter dados sensíveis e não deve ser logada sem filtragem.
+
+### Redirecionamento pós-login adulterado
+
+- Destinos são validados antes de iniciar o fluxo;
+- O destino persistido é validado novamente após ser carregado do storage;
+- URLs absolutas exigem HTTPS e host explicitamente permitido;
+- Fragmentos, credenciais embutidas e caminhos ambíguos são rejeitados.
+
+Risco residual: a aplicação consumidora precisa manter a allowlist de hosts mínima e correta.
 
 ### Vínculo indevido com usuário local
 
@@ -59,6 +68,7 @@ Risco residual: regras de domínio e transações pertencem à aplicação.
 - Auditoria de `SECRET_KEY`, HttpOnly, SameSite e Secure;
 - Referência rotacionada após login;
 - Logout remove somente a sessão atual;
+- Referências internas inválidas são descartadas sem manter o navegador preso a estado corrompido;
 - Modo estrito bloqueia erros de postura.
 
 Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consumidor.
@@ -69,9 +79,20 @@ Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consu
 - Causa preservada sem exposição pública;
 - TTL e namespace;
 - Capacidade atômica detectável;
+- Payloads de fluxo e identidade possuem limite de tamanho antes de serialização ou decode;
+- Identidades corrompidas removem a referência local para evitar falha persistente em toda requisição;
 - Token cache last-write-wins explicitado.
 
 Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcleo.
+
+### Exaustão por estruturas adversariais
+
+- Claims possuem profundidade máxima explícita;
+- Valores numéricos não finitos são rejeitados;
+- Payloads server-side têm tamanho máximo antes do decode;
+- Tipos fora do subconjunto JSON suportado são recusados.
+
+Risco residual: limites de requisição HTTP, rate limiting e proteção de infraestrutura pertencem à aplicação e ao proxy.
 
 ### Hooks hostis ou defeituosos
 

@@ -22,6 +22,7 @@ from ..storage import AtomicAuthStorage, AuthStorage
 _SESSION_PREFIX: Final = "_msentra_"
 _SESSION_ID_BYTES: Final = 32
 _MAX_SESSION_ID_LENGTH: Final = 128
+_MAX_IDENTITY_PAYLOAD_BYTES: Final = 262_144
 
 
 class WebSessionManager:
@@ -72,7 +73,10 @@ class WebSessionManager:
         self._write_metadata(metadata)
         if not isinstance(flow_id, str):
             return None
-        return _validate_session_identifier(flow_id)
+        try:
+            return _validate_session_identifier(flow_id)
+        except StorageError:
+            return None
 
     def establish_identity(self, identity: Identity) -> None:
         # Rotaciona a sessão de autenticação interna e persiste uma identidade validada
@@ -84,7 +88,13 @@ class WebSessionManager:
         metadata = self._metadata()
         old_session_id = metadata.get("session_id")
         if isinstance(old_session_id, str):
-            self._storage.delete(_identity_key(_validate_session_identifier(old_session_id)))
+            validated_old_session_id: str | None
+            try:
+                validated_old_session_id = _validate_session_identifier(old_session_id)
+            except StorageError:
+                validated_old_session_id = None
+            if validated_old_session_id is not None:
+                self._storage.delete(_identity_key(validated_old_session_id))
 
         session_id = token_urlsafe(_SESSION_ID_BYTES)
         payload = _serialize_identity(identity)
@@ -115,7 +125,14 @@ class WebSessionManager:
             self._write_metadata({})
             return None
 
-        identity = _deserialize_identity(payload, expected_tenant_id=self._config.tenant_id)
+        try:
+            identity = _deserialize_identity(
+                payload,
+                expected_tenant_id=self._config.tenant_id,
+            )
+        except StorageError:
+            self._write_metadata({})
+            raise
         bind_identity(identity)
         return identity
 
@@ -123,25 +140,29 @@ class WebSessionManager:
         # Deleta apenas a identidade atual e referências de cookies desta extensão
         identity: Identity | None = None
         metadata = self._metadata()
-        session_id = metadata.get("session_id")
-        if isinstance(session_id, str):
-            validated_session_id = _validate_session_identifier(session_id)
-            identity_key = _identity_key(validated_session_id)
-            if isinstance(self._storage, AtomicAuthStorage):
-                payload = self._storage.take(identity_key)
-            else:
-                payload = self._storage.load(identity_key)
+        try:
+            session_id = metadata.get("session_id")
+            if isinstance(session_id, str):
+                try:
+                    validated_session_id = _validate_session_identifier(session_id)
+                except StorageError:
+                    return None
+                identity_key = _identity_key(validated_session_id)
+                if isinstance(self._storage, AtomicAuthStorage):
+                    payload = self._storage.take(identity_key)
+                else:
+                    payload = self._storage.load(identity_key)
+                    if payload is not None:
+                        self._storage.delete(identity_key)
                 if payload is not None:
-                    self._storage.delete(identity_key)
-            if payload is not None:
-                identity = _deserialize_identity(
-                    payload,
-                    expected_tenant_id=self._config.tenant_id,
-                )
-
-        self._write_metadata({})
-        clear_identity()
-        return identity
+                    identity = _deserialize_identity(
+                        payload,
+                        expected_tenant_id=self._config.tenant_id,
+                    )
+            return identity
+        finally:
+            self._write_metadata({})
+            clear_identity()
 
     def _metadata(self) -> dict[str, str]:
         raw = session.get(self._session_key)
@@ -172,6 +193,7 @@ def _validate_session_identifier(value: object) -> str:
         not isinstance(value, str)
         or not value
         or len(value) > _MAX_SESSION_ID_LENGTH
+        or not value.isascii()
         or any(not (character.isalnum() or character in "_-") for character in value)
     ):
         raise StorageError("authentication session identifier is invalid")
@@ -189,12 +211,22 @@ def _serialize_identity(identity: Identity) -> bytes:
         "claims": _thaw_json_value(identity.claims),
     }
     try:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
     except (TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("identity could not be serialized") from exc
+    if len(serialized) > _MAX_IDENTITY_PAYLOAD_BYTES:
+        raise StorageError("identity exceeds the supported storage size")
+    return serialized
 
 
 def _deserialize_identity(payload: bytes, *, expected_tenant_id: str) -> Identity:
+    if len(payload) > _MAX_IDENTITY_PAYLOAD_BYTES:
+        raise StorageError("stored identity exceeds the supported storage size")
     try:
         data = json.loads(payload.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeError) as exc:

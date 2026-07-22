@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 from collections.abc import Iterable, Mapping, Sequence
+from math import isfinite
 from secrets import token_urlsafe
 from typing import Final, cast
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from ..errors import (
     AuthenticationCancelled,
     IdentityValidationError,
     InvalidCallbackError,
+    InvalidNavigationTarget,
     ProviderUnavailableError,
     StorageError,
     TokenAcquisitionError,
@@ -21,6 +23,7 @@ from ..errors import (
 from ..identity import Identity
 from ..storage import AtomicAuthStorage, AuthStorage
 from ..web.models import LoginResult, LoginStart
+from ..web.urls import validate_next_url
 from .protocols import InteractiveMsalClient, MsalAccount, MsalClientFactory, MsalResult
 from .token_cache import persist_token_cache
 
@@ -29,6 +32,7 @@ _RANDOM_BYTES: Final = 32
 _MAX_FLOW_ID_LENGTH: Final = 128
 _MAX_CALLBACK_FIELDS: Final = 32
 _MAX_CALLBACK_VALUE_LENGTH: Final = 8_192
+_MAX_FLOW_PAYLOAD_BYTES: Final = 262_144
 
 
 class AuthCodeFlowService:
@@ -54,6 +58,7 @@ class AuthCodeFlowService:
         scopes: Iterable[str] | None = None,
     ) -> LoginStart:
         # Cria e persiste uma transação de login interativa
+        validated_next_url = validate_next_url(next_url, self._config)
         requested_scopes = _normalize_scopes(scopes, default=self._config.scopes)
         state = token_urlsafe(_RANDOM_BYTES)
         cache = SerializableTokenCache()
@@ -73,7 +78,7 @@ class AuthCodeFlowService:
             expected_authority=self._config.authority,
         )
         flow_id = token_urlsafe(_RANDOM_BYTES)
-        payload = _serialize_flow(validated_flow, next_url=next_url)
+        payload = _serialize_flow(validated_flow, next_url=validated_next_url)
         self._storage.save(_flow_key(flow_id), payload, ttl=self._config.flow_ttl)
         return LoginStart(auth_uri=_flow_auth_uri(validated_flow), flow_id=flow_id)
 
@@ -98,7 +103,13 @@ class AuthCodeFlowService:
             raise InvalidCallbackError("authentication flow is missing, expired, or consumed")
 
         # Consome antes da redenção para que tentativas de repetição e callbacks simultâneos não possam reproduzi-lo
-        flow, next_url = _deserialize_flow(payload)
+        flow, stored_next_url = _deserialize_flow(payload)
+        try:
+            next_url = validate_next_url(stored_next_url, self._config)
+        except InvalidNavigationTarget as exc:
+            raise StorageError(
+                "stored authentication flow contains an invalid navigation target"
+            ) from exc
         response = _normalize_auth_response(auth_response)
         _validate_callback_state(flow, response)
 
@@ -211,12 +222,22 @@ def _flow_auth_uri(
 def _serialize_flow(flow: Mapping[str, object], *, next_url: str) -> bytes:
     payload = {"version": _FLOW_VERSION, "flow": flow, "next_url": next_url}
     try:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
     except (TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("authentication flow could not be serialized") from exc
+    if len(serialized) > _MAX_FLOW_PAYLOAD_BYTES:
+        raise StorageError("authentication flow exceeds the supported storage size")
+    return serialized
 
 
 def _deserialize_flow(payload: bytes) -> tuple[Mapping[str, object], str]:
+    if len(payload) > _MAX_FLOW_PAYLOAD_BYTES:
+        raise StorageError("stored authentication flow exceeds the supported storage size")
     try:
         data = json.loads(payload.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeError) as exc:
@@ -352,6 +373,8 @@ def _flow_key(flow_id: str) -> str:
 def _ensure_json_compatible(value: object, *, depth: int = 0) -> None:
     if depth > 12:
         raise StorageError("authentication flow is too deeply nested")
+    if isinstance(value, float) and not isfinite(value):
+        raise StorageError("authentication flow contains invalid numeric data")
     if value is None or isinstance(value, str | int | float | bool):
         return
     if isinstance(value, Mapping):

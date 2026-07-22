@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 from typing import Final
 
@@ -16,6 +17,7 @@ _FORBIDDEN_CLAIM_KEYS: Final = frozenset(
         "token_cache",
     }
 )
+_MAX_CLAIM_DEPTH: Final = 12
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -144,20 +146,28 @@ def _freeze_claims(claims: Mapping[str, object]) -> Mapping[str, object]:
             raise IdentityValidationError("identity claim names must be non-empty strings")
         if key.casefold() in _FORBIDDEN_CLAIM_KEYS:
             raise IdentityValidationError("identity claims must not contain credentials")
-        frozen[key] = _freeze_claim_value(value)
+        frozen[key] = _freeze_claim_value(value, depth=1)
     return MappingProxyType(frozen)
 
 
-def _freeze_claim_value(value: object) -> object:
+def _freeze_claim_value(value: object, *, depth: int) -> object:
+    if depth > _MAX_CLAIM_DEPTH:
+        raise IdentityValidationError("identity claims are too deeply nested")
+    if isinstance(value, float) and not isfinite(value):
+        raise IdentityValidationError("identity claims must contain finite numeric values")
     if value is None or isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, Mapping):
         nested: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
-                raise IdentityValidationError("nested identity claim names must be strings")
-            nested[key] = _freeze_claim_value(item)
+            if not isinstance(key, str) or not key:
+                raise IdentityValidationError(
+                    "nested identity claim names must be non-empty strings"
+                )
+            if key.casefold() in _FORBIDDEN_CLAIM_KEYS:
+                raise IdentityValidationError("identity claims must not contain credentials")
+            nested[key] = _freeze_claim_value(item, depth=depth + 1)
         return MappingProxyType(nested)
     if isinstance(value, list | tuple):
-        return tuple(_freeze_claim_value(item) for item in value)
+        return tuple(_freeze_claim_value(item, depth=depth + 1) for item in value)
     raise IdentityValidationError("identity claims must contain only JSON-compatible values")

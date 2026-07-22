@@ -1,5 +1,20 @@
 # Changelog
 
+## Não lançado
+
+### Segurança
+
+- Claims de identidade rejeitam credenciais em qualquer nível de aninhamento;
+- O destino pós-login é validado antes da persistência e novamente após a leitura do storage;
+- Fluxos e identidades server-side possuem limite explícito de tamanho e rejeitam números JSON não finitos;
+- Claims excessivamente aninhadas são recusadas antes de atingir recursão não controlada.
+
+### Robustez
+
+- Referências internas de fluxo ou sessão inválidas são descartadas com segurança;
+- A referência no cookie é removida mesmo quando uma identidade persistida está corrompida;
+- Uma referência antiga inválida não impede o estabelecimento de uma nova sessão autenticada.
+
 ## 1.0.0
 
 ### Segurança
