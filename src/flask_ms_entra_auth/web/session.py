@@ -9,8 +9,9 @@ from typing import Final
 from flask import current_app, session
 
 from ..config import MicrosoftEntraAuthConfig
-from ..context import bind_identity, clear_identity
+from ..context import bind_identity, clear_identity, get_current_identity
 from ..errors import (
+    AuthenticationRequired,
     ConfigurationError,
     IdentityValidationError,
     InvalidCallbackError,
@@ -96,23 +97,42 @@ class WebSessionManager:
             except StorageError:
                 validated_old_session_id = None
 
+        previous_identity: Identity | None = None
+        if validated_old_session_id is not None:
+            try:
+                previous_identity = get_current_identity()
+            except AuthenticationRequired:
+                previous_identity = None
+
         new_identity_key = _identity_key(session_id)
         self._storage.save(
             new_identity_key,
             payload,
             ttl=self._config.identity_ttl,
         )
-        if validated_old_session_id is not None:
-            try:
+        try:
+            self._write_metadata({"session_id": session_id})
+            bind_identity(identity)
+            if validated_old_session_id is not None:
                 self._storage.delete(_identity_key(validated_old_session_id))
-            except Exception as exc:
-                try:
-                    self._storage.delete(new_identity_key)
-                except Exception:
-                    exc.add_note("new identity cleanup also failed")
-                raise
-        self._write_metadata({"session_id": session_id})
-        bind_identity(identity)
+        except Exception as exc:
+            rollback_metadata = metadata if validated_old_session_id is not None else {}
+            try:
+                self._write_metadata(rollback_metadata)
+            except Exception:
+                exc.add_note("authentication session metadata cleanup also failed")
+            try:
+                self._storage.delete(new_identity_key)
+            except Exception:
+                exc.add_note("new identity cleanup also failed")
+            try:
+                if previous_identity is None:
+                    clear_identity()
+                else:
+                    bind_identity(previous_identity)
+            except Exception:
+                exc.add_note("request identity cleanup also failed")
+            raise
 
     def restore_identity(self) -> Identity | None:
         # Carrega e vincula a identidade do lado do servidor atual quando existir

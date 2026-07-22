@@ -47,6 +47,16 @@ def audit_security(
 ) -> SecurityReport:
     # Inspecionar as configurações do framework e do backend sem ler valores secretos, garantindo que a auditoria de segurança não exponha informações sensíveis
     findings: list[SecurityFinding] = []
+
+    if app.debug:
+        findings.append(
+            SecurityFinding(
+                "flask-debug-enabled",
+                "error",
+                "Flask debug mode must be disabled for authentication workloads.",
+            )
+        )
+
     secret_key = app.secret_key
     if not secret_key:
         findings.append(

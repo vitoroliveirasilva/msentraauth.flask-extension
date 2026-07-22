@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -34,6 +36,37 @@ def release_module() -> ReleaseModule:
     return cast(ReleaseModule, module)
 
 
+def write_wheel(
+    path: Path,
+    *,
+    name: str = "flask-ms-entra-auth",
+    version: str = "1.0.0",
+    duplicate_metadata: bool = False,
+) -> None:
+    metadata = f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "flask_ms_entra_auth-1.0.0.dist-info/METADATA",
+            metadata,
+        )
+        if duplicate_metadata:
+            archive.writestr("other.dist-info/METADATA", metadata)
+
+
+def write_sdist(
+    path: Path,
+    *,
+    name: str = "flask-ms-entra-auth",
+    version: str = "1.0.0",
+    metadata_path: str = "flask_ms_entra_auth-1.0.0/PKG-INFO",
+) -> None:
+    payload = f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n".encode()
+    member = tarfile.TarInfo(metadata_path)
+    member.size = len(payload)
+    with tarfile.open(path, "w:gz") as archive:
+        archive.addfile(member, io.BytesIO(payload))
+
+
 def test_stable_version_and_tag_contract() -> None:
     module = release_module()
     version = module.verify_version(__version__)
@@ -62,14 +95,13 @@ def test_distribution_validation_and_cli(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
     wheel = dist_dir / "flask_ms_entra_auth-1.0.0-py3-none-any.whl"
-    with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr(
-            "flask_ms_entra_auth-1.0.0.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: flask-ms-entra-auth\nVersion: 1.0.0\n",
-        )
-    (dist_dir / "flask_ms_entra_auth-1.0.0.tar.gz").write_bytes(b"sdist")
+    sdist = dist_dir / "flask_ms_entra_auth-1.0.0.tar.gz"
+    write_wheel(wheel)
+    write_sdist(sdist)
+
     selected = module.verify_distributions(dist_dir, Version("1.0.0"))
-    assert selected[0] == wheel
+
+    assert selected == (wheel, sdist)
     assert module.main(["--tag", "v1.0.0", "--dist-dir", str(dist_dir)]) == 0
 
 
@@ -81,10 +113,33 @@ def test_distribution_validation_rejects_missing_or_invalid_metadata(
         module.verify_distributions(tmp_path, Version("1.0.0"))
 
     wheel = tmp_path / "flask_ms_entra_auth-1.0.0-py3-none-any.whl"
+    sdist = tmp_path / "flask_ms_entra_auth-1.0.0.tar.gz"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("package/file.py", "")
-    (tmp_path / "flask_ms_entra_auth-1.0.0.tar.gz").write_bytes(b"sdist")
+    write_sdist(sdist)
     with pytest.raises(ValueError, match="metadata"):
+        module.verify_distributions(tmp_path, Version("1.0.0"))
+
+
+def test_distribution_validation_rejects_ambiguous_or_mismatched_artifacts(
+    tmp_path: Path,
+) -> None:
+    module = release_module()
+    wheel = tmp_path / "flask_ms_entra_auth-1.0.0-py3-none-any.whl"
+    sdist = tmp_path / "flask_ms_entra_auth-1.0.0.tar.gz"
+
+    write_wheel(wheel, duplicate_metadata=True)
+    write_sdist(sdist)
+    with pytest.raises(ValueError, match="exactly one metadata"):
+        module.verify_distributions(tmp_path, Version("1.0.0"))
+
+    write_wheel(wheel)
+    write_sdist(sdist, version="1.0.1")
+    with pytest.raises(ValueError, match="identity"):
+        module.verify_distributions(tmp_path, Version("1.0.0"))
+
+    sdist.write_bytes(b"not-a-tar-archive")
+    with pytest.raises(ValueError, match="sdist could not be read"):
         module.verify_distributions(tmp_path, Version("1.0.0"))
 
 

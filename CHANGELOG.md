@@ -11,7 +11,10 @@
 - Respostas das rotas de autenticação desabilitam cache e envio de referer;
 - O cache MSAL possui limite explícito de payload antes da desserialização e persistência;
 - Campos estruturais da identidade devem coincidir com `oid` e `tid` quando essas claims estiverem presentes;
-- Variações de nomes de claims sensíveis, como `refreshToken` ou `client-secret`, também são rejeitadas.
+- Variações de nomes de claims sensíveis, como `refreshToken` ou `client-secret`, também são rejeitadas;
+- A auditoria classifica `DEBUG=True` como erro de postura para cargas de autenticação;
+- Redirecionamentos produzidos por `login_required` recebem os mesmos headers `no-store` e `no-referrer` das rotas de autenticação;
+- IDs de requisição externos ficam restritos ao subconjunto ASCII seguro e destinos de navegação rejeitam o caractere de controle DEL.
 
 ### Robustez
 
@@ -24,7 +27,11 @@
 - Falhas de relógio durante `take()` não removem valores válidos e TTLs que excedam o intervalo numérico falham de forma controlada;
 - A rotação de sessão remove o novo payload quando a referência anterior não pode ser revogada;
 - Identidades persistidas corrompidas são removidas do storage após a invalidação da referência local;
-- Contas MSAL duplicadas e access tokens compostos apenas por espaços são recusados.
+- Contas MSAL duplicadas e access tokens compostos apenas por espaços são recusados;
+- Falhas ao remover um fluxo recém-criado não mascaram a falha original ao gravar sua referência na sessão;
+- Logout limpa identidade e token cache antes de tentar remover um fluxo pendente potencialmente indisponível;
+- Falhas ao atualizar metadados da sessão removem o novo payload, restauram a sessão anterior quando válida e mantêm a exceção principal;
+- O gate de release valida identidade e metadata exatas tanto no wheel quanto no sdist, incluindo arquivos ambíguos ou corrompidos.
 
 ## 1.0.0
 

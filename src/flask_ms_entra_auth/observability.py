@@ -116,6 +116,7 @@ def _safe_request_id(value: object) -> str | None:
     normalized = value.strip()
     if (
         not normalized
+        or not normalized.isascii()
         or len(normalized) > _MAX_REQUEST_ID_LENGTH
         or any(not (character.isalnum() or character in "._:-") for character in normalized)
     ):

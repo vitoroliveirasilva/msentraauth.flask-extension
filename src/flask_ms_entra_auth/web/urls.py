@@ -21,7 +21,7 @@ def validate_next_url(value: object | None, config: MicrosoftEntraAuthConfig) ->
         not candidate
         or len(candidate) > _MAX_NEXT_URL_LENGTH
         or "\\" in candidate
-        or any(ord(character) < 32 for character in candidate)
+        or any(ord(character) < 32 or ord(character) == 127 for character in candidate)
     ):
         raise InvalidNavigationTarget("navigation target is invalid")
 

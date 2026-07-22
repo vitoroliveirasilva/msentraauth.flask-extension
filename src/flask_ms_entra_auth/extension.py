@@ -7,7 +7,7 @@ from functools import wraps
 from time import perf_counter
 from typing import ParamSpec, overload
 
-from flask import Flask, current_app, redirect, request, url_for
+from flask import Flask, current_app, request, url_for
 from flask.typing import ResponseReturnValue
 
 from .auth import MsalService
@@ -37,7 +37,12 @@ from .security import audit_security as _audit_security
 from .storage import AuthStorage, MemoryStorage
 from .storage.namespaced import NamespacedStorage
 from .web.models import LoginResult
-from .web.routes import _safe_error_response, blueprint_name, create_auth_blueprint
+from .web.routes import (
+    _safe_error_response,
+    _secure_redirect,
+    blueprint_name,
+    create_auth_blueprint,
+)
 from .web.session import WebSessionManager
 from .web.urls import validate_next_url
 
@@ -240,8 +245,11 @@ class MicrosoftEntraAuth:
             started = state.flow.begin_login(next_url=safe_next_url, scopes=scopes)
             try:
                 state.web_session.set_pending_flow(started.flow_id)
-            except Exception:
-                state.flow.discard(started.flow_id)
+            except Exception as exc:
+                try:
+                    state.flow.discard(started.flow_id)
+                except Exception:
+                    exc.add_note("new authentication flow cleanup also failed")
                 raise
         except MicrosoftEntraAuthError as exc:
             state.observability.emit_error(exc)
@@ -286,12 +294,11 @@ class MicrosoftEntraAuth:
             state.web_session.require_secure_session()
 
             pending_flow_id = state.web_session.discard_pending_flow()
-            if pending_flow_id is not None:
-                state.flow.discard(pending_flow_id)
-
             identity = state.web_session.clear_authentication()
             if identity is not None:
                 delete_token_cache(state.storage, identity.home_account_id)
+            if pending_flow_id is not None:
+                state.flow.discard(pending_flow_id)
             self._hooks.emit_logout(identity)
         except MicrosoftEntraAuthError as exc:
             state.observability.emit_error(exc)
@@ -415,7 +422,7 @@ class MicrosoftEntraAuth:
         target = request.full_path
         if target.endswith("?"):
             target = target[:-1]
-        return redirect(url_for(f"{blueprint_name()}.login", next=target))
+        return _secure_redirect(url_for(f"{blueprint_name()}.login", next=target))
 
     def _notify_error(self, error: MicrosoftEntraAuthError) -> None:
         # Notifica hooks sobre erros levantados antes da execução de um método público da extensão

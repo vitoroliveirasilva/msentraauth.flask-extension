@@ -24,6 +24,8 @@ Aplicação web Flask confidencial, single-tenant, usando Authorization Code Flo
 5. Hooks e banco de domínio da aplicação;
 6. Pipeline, wheel e sdist.
 
+O gate de release exige metadata única e coerente em ambos os formatos de distribuição, sem confiar apenas no nome dos arquivos.
+
 ## Ameaças e controles
 
 ### Replay e corrida de callback
@@ -43,7 +45,8 @@ Risco residual: backend sem atomicidade pode permitir janela entre leitura e rem
 - Cache é serializado pelo MSAL;
 - Logging e eventos usam campos fechados;
 - Mensagens públicas não copiam payloads;
-- Respostas de login, callback, logout e erro desabilitam cache e envio de referer.
+- Respostas de login, callback, logout, erro e redirecionamento de `login_required` desabilitam cache e envio de referer;
+- IDs de requisição fornecidos pelo cliente são aceitos somente no subconjunto ASCII seguro.
 
 Risco residual: causa de exceção externa pode conter dados sensíveis e não deve ser logada sem filtragem.
 
@@ -52,7 +55,7 @@ Risco residual: causa de exceção externa pode conter dados sensíveis e não d
 - Destinos são validados antes de iniciar o fluxo;
 - O destino persistido é validado novamente após ser carregado do storage;
 - URLs absolutas exigem HTTPS e host explicitamente permitido;
-- Fragmentos, credenciais embutidas e caminhos ambíguos são rejeitados;
+- Fragmentos, credenciais embutidas, barras invertidas e caracteres de controle são rejeitados;
 - A resposta do callback usa `Referrer-Policy: no-referrer` para não encaminhar auth code ou state ao destino seguinte.
 
 Risco residual: a aplicação consumidora precisa manter a allowlist de hosts mínima e correta.
@@ -68,11 +71,11 @@ Risco residual: regras de domínio e transações pertencem à aplicação.
 
 ### Sessão fraca
 
-- Auditoria de `SECRET_KEY`, HttpOnly, SameSite e Secure;
+- Auditoria de `SECRET_KEY`, modo debug, HttpOnly, SameSite e Secure;
 - Referência rotacionada após login;
 - Uma nova identidade é serializada e persistida antes da revogação da referência anterior;
 - Se a revogação anterior falhar, o novo payload é removido e a sessão existente permanece ativa;
-- Logout remove somente a sessão atual;
+- Logout remove somente a sessão atual e limpa identidade e cache antes de depender da remoção de fluxo pendente;
 - Referências internas inválidas são descartadas sem manter o navegador preso a estado corrompido;
 - Modo estrito bloqueia erros de postura.
 
@@ -91,7 +94,8 @@ Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consu
 - Falha secundária ao persistir cache não substitui o erro principal de autenticação;
 - Seleção silenciosa rejeita múltiplas contas com o mesmo `home_account_id`;
 - Tokens vazios ou compostos apenas por espaços não são aceitos como credenciais válidas;
-- Token cache last-write-wins explicitado.
+- Token cache last-write-wins explicitado;
+- Falhas ao gravar a nova referência de sessão acionam limpeza compensatória do payload recém-persistido.
 
 Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcleo.
 
