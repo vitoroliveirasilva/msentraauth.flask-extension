@@ -15,6 +15,7 @@ from flask_ms_entra_auth import (
 )
 from flask_ms_entra_auth.auth import flow as flow_module
 from flask_ms_entra_auth.auth.flow import AuthCodeFlowService
+from flask_ms_entra_auth.auth.protocols import MsalClient
 from flask_ms_entra_auth.config import MicrosoftEntraAuthConfig
 from flask_ms_entra_auth.web import session as session_module
 from flask_ms_entra_auth.web.session import WebSessionManager
@@ -85,10 +86,10 @@ def test_begin_login_rejects_unsafe_target_before_calling_provider() -> None:
     def factory(
         _config: MicrosoftEntraAuthConfig,
         _cache: SerializableTokenCache,
-    ) -> object:
+    ) -> MsalClient:
         nonlocal called
         called = True
-        return object()
+        raise AssertionError("provider must not be called for an unsafe target")
 
     service = AuthCodeFlowService(
         config=config(),
@@ -98,7 +99,6 @@ def test_begin_login_rejects_unsafe_target_before_calling_provider() -> None:
 
     with pytest.raises(InvalidNavigationTarget):
         service.begin_login(next_url="https://attacker.example/after-login")
-
     assert called is False
 
 
@@ -117,7 +117,7 @@ def test_complete_login_revalidates_target_loaded_from_storage() -> None:
     def factory(
         _config: MicrosoftEntraAuthConfig,
         _cache: SerializableTokenCache,
-    ) -> object:
+    ) -> MsalClient:
         raise AssertionError("provider must not be called for a tampered target")
 
     service = AuthCodeFlowService(
