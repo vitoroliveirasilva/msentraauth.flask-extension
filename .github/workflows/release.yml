@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Verify production release source
@@ -26,7 +26,7 @@ jobs:
         run: |
           git fetch --no-tags origin prod:refs/remotes/origin/prod
           git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/prod
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
