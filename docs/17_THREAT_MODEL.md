@@ -24,7 +24,7 @@ Aplicação web Flask confidencial, single-tenant, usando Authorization Code Flo
 5. Hooks e banco de domínio da aplicação;
 6. Pipeline, wheel e sdist.
 
-O gate de release exige metadata única e coerente em ambos os formatos de distribuição, sem confiar apenas no nome dos arquivos.
+O gate de release exige metadata única e coerente em ambos os formatos de distribuição, sem confiar apenas no nome dos arquivos. Publicações no PyPI também exigem que o commit da tag pertença ao histórico da branch `prod`.
 
 ## Ameaças e controles
 
@@ -76,6 +76,7 @@ Risco residual: regras de domínio e transações pertencem à aplicação.
 - Uma nova identidade é serializada e persistida antes da revogação da referência anterior;
 - Se a revogação anterior falhar, o novo payload é removido e a sessão existente permanece ativa;
 - Logout remove somente a sessão atual e limpa identidade e cache antes de depender da remoção de fluxo pendente;
+- A limpeza da identidade não consome o fluxo pendente da mesma sessão e preserva a referência autenticada quando a revogação no storage falha antes de qualquer remoção;
 - Referências internas inválidas são descartadas sem manter o navegador preso a estado corrompido;
 - Modo estrito bloqueia erros de postura.
 
@@ -95,7 +96,9 @@ Risco residual: CSRF geral, proxy e headers permanecem responsabilidade do consu
 - Seleção silenciosa rejeita múltiplas contas com o mesmo `home_account_id`;
 - Tokens vazios ou compostos apenas por espaços não são aceitos como credenciais válidas;
 - Token cache last-write-wins explicitado;
-- Falhas ao gravar a nova referência de sessão acionam limpeza compensatória do payload recém-persistido.
+- Falhas ao gravar a nova referência de sessão acionam limpeza compensatória do payload recém-persistido;
+- Falhas secundárias ao limpar metadados corrompidos são anexadas ao erro principal, sem substituí-lo;
+- Falhas ao escrever referências no backend de sessão são normalizadas como `StorageError`.
 
 Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcleo.
 
@@ -104,7 +107,8 @@ Risco residual: não há CAS, reconciliação, retry ou circuit breaker no núcl
 - Claims possuem profundidade máxima explícita;
 - Valores numéricos não finitos são rejeitados;
 - Payloads server-side têm tamanho máximo antes do decode;
-- Tipos fora do subconjunto JSON suportado são recusados.
+- Tipos fora do subconjunto JSON suportado são recusados;
+- Recursão excedida ao decodificar identidade ou processar token cache é convertida em erro controlado.
 
 Risco residual: limites de requisição HTTP, rate limiting e proteção de infraestrutura pertencem à aplicação e ao proxy.
 

@@ -160,7 +160,10 @@ class WebSessionManager:
                 expected_tenant_id=self._config.tenant_id,
             )
         except StorageError as exc:
-            self._write_metadata({})
+            try:
+                self._write_metadata({})
+            except Exception:
+                exc.add_note("corrupt identity metadata cleanup also failed")
             try:
                 self._storage.delete(identity_key)
             except Exception:
@@ -170,32 +173,42 @@ class WebSessionManager:
         return identity
 
     def clear_authentication(self) -> Identity | None:
-        # Deleta apenas a identidade atual e referências de cookies desta extensão
+        # Remove a identidade atual sem consumir fluxos pendentes da mesma sessão
         identity: Identity | None = None
         metadata = self._metadata()
+        reference_revoked = False
         try:
             session_id = metadata.get("session_id")
-            if isinstance(session_id, str):
-                try:
-                    validated_session_id = _validate_session_identifier(session_id)
-                except StorageError:
-                    return None
-                identity_key = _identity_key(validated_session_id)
-                if isinstance(self._storage, AtomicAuthStorage):
-                    payload = self._storage.take(identity_key)
-                else:
-                    payload = self._storage.load(identity_key)
-                    if payload is not None:
-                        self._storage.delete(identity_key)
+            if not isinstance(session_id, str):
+                reference_revoked = True
+                return None
+            try:
+                validated_session_id = _validate_session_identifier(session_id)
+            except StorageError:
+                reference_revoked = True
+                return None
+
+            identity_key = _identity_key(validated_session_id)
+            if isinstance(self._storage, AtomicAuthStorage):
+                payload = self._storage.take(identity_key)
+            else:
+                payload = self._storage.load(identity_key)
                 if payload is not None:
-                    identity = _deserialize_identity(
-                        payload,
-                        expected_tenant_id=self._config.tenant_id,
-                    )
+                    self._storage.delete(identity_key)
+            reference_revoked = True
+            if payload is not None:
+                identity = _deserialize_identity(
+                    payload,
+                    expected_tenant_id=self._config.tenant_id,
+                )
             return identity
         finally:
-            self._write_metadata({})
-            clear_identity()
+            try:
+                if reference_revoked:
+                    metadata.pop("session_id", None)
+                    self._write_metadata(metadata)
+            finally:
+                clear_identity()
 
     def _metadata(self) -> dict[str, str]:
         raw = session.get(self._session_key)
@@ -210,10 +223,13 @@ class WebSessionManager:
         return metadata
 
     def _write_metadata(self, metadata: Mapping[str, str]) -> None:
-        if metadata:
-            session[self._session_key] = dict(metadata)
-        else:
-            session.pop(self._session_key, None)
+        try:
+            if metadata:
+                session[self._session_key] = dict(metadata)
+            else:
+                session.pop(self._session_key, None)
+        except Exception as exc:
+            raise StorageError("authentication session metadata update failed") from exc
 
 
 def _identity_key(session_id: str) -> str:
@@ -250,7 +266,7 @@ def _serialize_identity(identity: Identity) -> bytes:
             allow_nan=False,
             separators=(",", ":"),
         ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (RecursionError, TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("identity could not be serialized") from exc
     if len(serialized) > _MAX_IDENTITY_PAYLOAD_BYTES:
         raise StorageError("identity exceeds the supported storage size")
@@ -262,7 +278,7 @@ def _deserialize_identity(payload: bytes, *, expected_tenant_id: str) -> Identit
         raise StorageError("stored identity exceeds the supported storage size")
     try:
         data = json.loads(payload.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeError) as exc:
+    except (json.JSONDecodeError, RecursionError, UnicodeError) as exc:
         raise StorageError("stored identity could not be decoded") from exc
     if not isinstance(data, Mapping):
         raise StorageError("stored identity has an invalid structure")

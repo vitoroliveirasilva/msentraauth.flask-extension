@@ -64,7 +64,7 @@ def _verify_wheel_metadata(wheel_path: Path, version: Version) -> None:
             if info.file_size > _MAX_METADATA_BYTES:
                 raise ValueError("wheel metadata exceeds the supported size")
             metadata = wheel.read(info)
-    except (BadZipFile, LargeZipFile, OSError) as exc:
+    except (BadZipFile, LargeZipFile, NotImplementedError, OSError, RuntimeError) as exc:
         raise ValueError("wheel could not be read") from exc
     _verify_core_metadata(metadata, version, artifact="wheel")
 
@@ -74,7 +74,7 @@ def _verify_sdist_metadata(sdist_path: Path, version: Version) -> None:
     try:
         with tarfile.open(sdist_path, mode="r:gz") as sdist:
             metadata = _read_sdist_metadata(sdist, expected_name)
-    except (OSError, tarfile.ReadError) as exc:
+    except (OSError, tarfile.TarError) as exc:
         raise ValueError("sdist could not be read") from exc
     _verify_core_metadata(metadata, version, artifact="sdist")
 

@@ -22,7 +22,7 @@ def load_token_cache(storage: AuthStorage, home_account_id: str) -> Serializable
 
     try:
         cache.deserialize(serialized.decode("utf-8"))
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (RecursionError, TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("token cache could not be deserialized") from exc
     return cache
 
@@ -43,7 +43,7 @@ def persist_token_cache(
         if not isinstance(serialized_text, str):
             raise TypeError("token cache serialization must return text")
         serialized = serialized_text.encode("utf-8")
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (RecursionError, TypeError, ValueError, UnicodeError) as exc:
         raise StorageError("token cache could not be serialized") from exc
     if len(serialized) > _MAX_TOKEN_CACHE_PAYLOAD_BYTES:
         raise StorageError("token cache exceeds the supported storage size")

@@ -19,6 +19,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify production release source
+        if: github.event_name == 'release'
+        run: |
+          git fetch --no-tags origin prod:refs/remotes/origin/prod
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/prod
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"

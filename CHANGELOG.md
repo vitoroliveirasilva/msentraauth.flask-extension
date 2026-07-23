@@ -14,7 +14,8 @@
 - Variações de nomes de claims sensíveis, como `refreshToken` ou `client-secret`, também são rejeitadas;
 - A auditoria classifica `DEBUG=True` como erro de postura para cargas de autenticação;
 - Redirecionamentos produzidos por `login_required` recebem os mesmos headers `no-store` e `no-referrer` das rotas de autenticação;
-- IDs de requisição externos ficam restritos ao subconjunto ASCII seguro e destinos de navegação rejeitam o caractere de controle DEL.
+- IDs de requisição externos ficam restritos ao subconjunto ASCII seguro e destinos de navegação rejeitam o caractere de controle DEL;
+- Releases de produção somente avançam quando a tag aponta para um commit pertencente à branch `prod`.
 
 ### Robustez
 
@@ -31,7 +32,12 @@
 - Falhas ao remover um fluxo recém-criado não mascaram a falha original ao gravar sua referência na sessão;
 - Logout limpa identidade e token cache antes de tentar remover um fluxo pendente potencialmente indisponível;
 - Falhas ao atualizar metadados da sessão removem o novo payload, restauram a sessão anterior quando válida e mantêm a exceção principal;
-- O gate de release valida identidade e metadata exatas tanto no wheel quanto no sdist, incluindo arquivos ambíguos ou corrompidos.
+- O gate de release valida identidade e metadata exatas tanto no wheel quanto no sdist, incluindo arquivos ambíguos ou corrompidos;
+- A limpeza da identidade preserva fluxos pendentes e mantém a referência autenticada quando o storage falha antes da revogação;
+- Falhas ao limpar metadados de uma identidade corrompida não ocultam o erro original;
+- Falhas do backend de sessão são convertidas em `StorageError` antes de alcançar as rotas públicas;
+- Leitura de artefatos de release trata formatos de compactação não suportados como falhas sanitizadas;
+- Recursão excessiva durante serialização ou leitura de identidade e token cache é convertida em `StorageError`.
 
 ## 1.0.0
 

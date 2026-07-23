@@ -293,10 +293,10 @@ class MicrosoftEntraAuth:
         try:
             state.web_session.require_secure_session()
 
-            pending_flow_id = state.web_session.discard_pending_flow()
             identity = state.web_session.clear_authentication()
             if identity is not None:
                 delete_token_cache(state.storage, identity.home_account_id)
+            pending_flow_id = state.web_session.discard_pending_flow()
             if pending_flow_id is not None:
                 state.flow.discard(pending_flow_id)
             self._hooks.emit_logout(identity)
